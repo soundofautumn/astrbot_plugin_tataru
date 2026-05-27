@@ -111,11 +111,6 @@ class TataruPlugin(Star):
         """显示塔塔露当前已迁移的指令。"""
         yield event.plain_result(create_help_text())
 
-    @filter.command("塔塔露帮帮忙")
-    async def tataru_help(self, event: AstrMessageEvent):
-        """兼容原插件的完整帮助命令。"""
-        yield event.plain_result(create_help_text())
-
     @filter.command("选门")
     async def precious(self, event: AstrMessageEvent):
         """帮你选藏宝洞的门。"""
