@@ -1,0 +1,12 @@
+name: astrbot_plugin_tataru
+display_name: 塔塔露
+desc: FF14 塔塔露 AstrBot 插件，当前已迁移帮助、选门、仙人彩、抽卡。
+version: v0.1.0
+author: aaron-li / Codex
+repo: ""
+support_platforms:
+  - aiocqhttp
+  - qq_official
+  - telegram
+  - discord
+  - satori
