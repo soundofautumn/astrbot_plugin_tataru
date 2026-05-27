@@ -50,6 +50,9 @@ CALENDAR_SOURCES = {
 }
 QQ_DOC_URL = "https://docs.qq.com/sheet/DY2lCeEpwemZESm5q?tab=dewveu&c=A1A0A0"
 BILI_USER_ID = 15503317
+DUNGEON_NOTE_URL = "https://ff14.org/duty"
+PARTY_FINDER_URL = "https://xivpf.littlenightmare.top/listings"
+DATA_CENTRES = ["陆行鸟", "莫古力", "猫小胖", "豆豆柴"]
 
 
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
@@ -155,10 +158,12 @@ def create_help_text() -> str:
 [选门] 帮你选藏宝洞的门
 [仙人彩] 帮你选每周仙人仙彩数字
 [日历 (国服/国际服)] 获取FF近期活动日历
+[攻略 (副本等级) 副本名关键字 (文本)] 查简单副本攻略
+[招募 大区名] 获取指定大区招募板信息
 [抽卡] 随机抽取一张FF14塔罗牌
 
 以下功能仍在迁移中：
-[看看微博] [物品] [价格] [房子] [输出] [攻略] [招募]
+[看看微博] [物品] [价格] [房子] [输出]
 """
 
 
@@ -184,6 +189,41 @@ def normalize_calendar_server(value: str | None, default_server: str = "国服")
     if value in {"国服", "国", "cn", "china", "陆行鸟", "莫古力", "猫小胖", "豆豆柴"}:
         return "国服"
     return default_server
+
+
+def command_args(message: str, command: str) -> str:
+    message = message.strip()
+    if message == command:
+        return ""
+    if message.startswith(command):
+        return message[len(command):].strip()
+    return message
+
+
+def parse_dungeon_query(dungeon_info: str) -> tuple[str | None, str | None, bool]:
+    parts = dungeon_info.split()
+    if not parts:
+        return None, None, False
+
+    dungeon_level = None
+    is_text = False
+    if "文本" in parts:
+        is_text = True
+        parts = [part for part in parts if part != "文本"]
+
+    if parts and parts[0].isdigit():
+        dungeon_level = parts[0]
+        parts = parts[1:]
+
+    if not parts:
+        return dungeon_level, None, is_text
+    return dungeon_level, parts[0], is_text
+
+
+def strip_html(text: str) -> str:
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"<.*?>", "", text)
+    return html.unescape(text).strip()
 
 
 def find_bili_url_in_text(text: str) -> str | None:
@@ -309,11 +349,112 @@ async def get_bili_detail(bili_url: str) -> str:
     raise ValueError("解析bilibili视频简介失败")
 
 
+async def fetch_dungeon_notes() -> dict[str, dict[str, str]]:
+    page = await aiohttp_get(DUNGEON_NOTE_URL, res_type="text")
+    if not page:
+        raise ValueError("获取攻略列表失败")
+
+    note_dict: dict[str, dict[str, str]] = {}
+    matches = re.findall(r'/duty/.*?</a>', page, flags=re.S)
+    for line in matches[:-3]:
+        try:
+            page_id = line.split(".htm", 1)[0].replace("/duty/", "")
+            dungeon_level = line.split("[", 1)[1].split("]", 1)[0]
+            dungeon_name = line.split("] ", 1)[1].split("\n", 1)[0]
+        except IndexError:
+            continue
+        note_dict.setdefault(dungeon_level, {})[html.unescape(dungeon_name)] = page_id
+    return note_dict
+
+
+async def get_dungeon_note(dungeon_info: str) -> tuple[str, bool]:
+    dungeon_level, dungeon_name, is_text = parse_dungeon_query(dungeon_info)
+    if not dungeon_name:
+        return "查攻略格式：攻略 (副本等级) 副本名关键字 (文本)。括号内为可选参数，默认输出图片攻略。", True
+
+    note_dict = await fetch_dungeon_notes()
+    page_matches = []
+    for level_info, dungeon_items in note_dict.items():
+        for name, page_id in dungeon_items.items():
+            if dungeon_name in name:
+                page_matches.append([level_info, name, page_id])
+
+    if not page_matches:
+        return "副本名没搜到鸭", True
+
+    if len(page_matches) > 1 and dungeon_level:
+        filtered_matches = [item for item in page_matches if dungeon_level == item[0]]
+        if filtered_matches:
+            page_matches = filtered_matches
+
+    if len(page_matches) > 1:
+        result = "是哪个副本呢？重新告诉我哦~\n"
+        for page_match in page_matches:
+            result += page_match[0] + " " + page_match[1] + "、"
+        return result[:-1], True
+
+    detail_page = await aiohttp_get(f"{DUNGEON_NOTE_URL}/{page_matches[0][-1]}.htm", res_type="text")
+    if not detail_page:
+        return "攻略详情获取失败，请稍后再试", True
+
+    blocks = re.findall(r"<p>.*?</p>|<h\d.*?</h\d>", detail_page, flags=re.S)
+    result_text = ""
+    for block in blocks:
+        stripped = strip_html(block)
+        if stripped:
+            result_text += stripped + "\n"
+
+    if not result_text.strip():
+        return "攻略详情为空，请稍后再试", True
+    return result_text, is_text
+
+
+async def get_party_finder_texts(data_centre: str) -> list[str]:
+    all_info = await aiohttp_get(PARTY_FINDER_URL, res_type="text")
+    if not all_info:
+        raise ValueError("获取招募板失败")
+
+    data_centre_list = re.findall(r'data-centre=".*?"', all_info)
+    duty_list = re.findall(r'<div class="duty .*?</div>', all_info)
+    description_list = re.findall(r'<div class="description">.*?</div>', all_info)
+    meta_list = re.findall(r'class="text">.*?</span>', all_info)
+
+    text_list = []
+    index_now = 1
+    entry_count = min(len(data_centre_list), len(duty_list), len(description_list), len(meta_list) // 4)
+    for index in range(entry_count):
+        if data_centre not in data_centre_list[index]:
+            continue
+
+        data_centre_now = data_centre_list[index].split('"')[1].replace('"', "")
+        duty_now = strip_html(duty_list[index])
+        description_now = description_list[index].split(">", 1)[1].replace("</div>", "")
+        if "</span>" in description_now:
+            description_now = description_now.split("</span>", 1)[1]
+        description_now = strip_html(description_now)
+        creator_now = strip_html(meta_list[index * 4])
+        world_now = strip_html(meta_list[index * 4 + 1])
+        expires_now = strip_html(meta_list[index * 4 + 2])
+        updated_now = strip_html(meta_list[index * 4 + 3])
+
+        text_now = f"{index_now:03d} ============================================\n"
+        text_now += f"[{data_centre_now}] {duty_now}\n"
+        text_now += "------------------------------------------------\n"
+        text_now += description_now + "\n"
+        text_now += "------------------------------------------------\n"
+        text_now += creator_now + ", " + world_now + "\n" + expires_now + ", " + updated_now + "\n"
+        text_now += "------------------------------------------------\n\n"
+
+        index_now += 1
+        text_list.append(text_now)
+    return text_list
+
+
 @register(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.3.0",
+    "0.4.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -352,8 +493,7 @@ class TataruPlugin(Star):
     @filter.command("日历")
     async def calendar(self, event: AstrMessageEvent):
         """获取FF近期活动日历。"""
-        command_parts = event.message_str.strip().split(maxsplit=1)
-        requested_server = command_parts[1] if len(command_parts) > 1 else None
+        requested_server = command_args(event.message_str, "日历") or None
         server = normalize_calendar_server(requested_server, self.default_calendar_server())
         await self.ensure_calendar(server)
         yield event.plain_result(self.create_calendar_text(server))
@@ -363,6 +503,54 @@ class TataruPlugin(Star):
         """本周时尚品鉴作业。"""
         result = await self.create_nuannuan_result(event)
         yield result
+
+    @filter.command("攻略")
+    async def dungeon_note(self, event: AstrMessageEvent):
+        """查简单副本攻略。"""
+        dungeon_info = command_args(event.message_str, "攻略")
+        result_text, as_text = await get_dungeon_note(dungeon_info)
+        if as_text:
+            yield event.plain_result(result_text)
+            return
+
+        image_path = self.cache_dir / "dungeon_note.jpg"
+        text_to_image(result_text, image_path, width_now=25)
+        yield event.image_result(str(image_path))
+
+    @filter.command("招募")
+    async def party_finder(self, event: AstrMessageEvent):
+        """获取指定大区招募板信息。"""
+        data_centre = command_args(event.message_str, "招募")
+        if not data_centre:
+            yield event.plain_result("查招募版格式：招募 大区名称")
+            return
+        if data_centre not in DATA_CENTRES:
+            yield event.plain_result("大区名称有误，限定" + str(DATA_CENTRES))
+            return
+
+        try:
+            text_list = await get_party_finder_texts(data_centre)
+        except Exception as exc:
+            logger.warning(f"招募板获取失败: {exc}")
+            yield event.plain_result("招募板获取失败，请稍后再试")
+            return
+
+        if not text_list:
+            yield event.plain_result("当前无人上传招募信息")
+            return
+
+        image_components = []
+        for index in range(0, len(text_list), 40):
+            final_text = (
+                "  \n  \n  \n"
+                f"    【 招 募 板 】 {index + 1} ~ {min(index + 40, len(text_list))}\n\n"
+            )
+            final_text += "".join(text_list[index:index + 40])
+            image_path = self.cache_dir / f"party_finder_{index // 40}.jpg"
+            text_to_image(final_text, image_path, width_now=25)
+            image_components.append(Comp.Image.fromFileSystem(str(image_path)))
+
+        yield event.chain_result(image_components)
 
     @filter.command("抽卡")
     async def tarot(self, event: AstrMessageEvent):

@@ -9,6 +9,8 @@ TataruBot2 的 AstrBot 插件迁移版本。
 - `选门`
 - `仙人彩`
 - `日历`
+- `攻略`
+- `招募`
 - `抽卡`
 
 将 `astrbot_plugin_tataru` 目录放入 AstrBot 的 `data/plugins` 目录后，在 AstrBot WebUI 重载插件即可测试。
@@ -25,5 +27,3 @@ TataruBot2 的 AstrBot 插件迁移版本。
 - `价格`
 - `房子`
 - `输出`
-- `攻略`
-- `招募`
