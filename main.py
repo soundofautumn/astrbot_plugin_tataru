@@ -5,6 +5,7 @@ import json
 import random
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 import aiohttp
 from astrbot.api import logger
@@ -57,7 +58,11 @@ async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 1
                 return await response.read()
             if res_type == "text":
                 return await response.text()
-            return await response.json(content_type=None)
+            try:
+                return await response.json(content_type=None)
+            except Exception as exc:
+                logger.warning(f"JSON响应解析失败: {url}, {exc}")
+                return None
 
 
 def random_left_right() -> str:
@@ -153,6 +158,35 @@ def normalize_calendar_date(value) -> tuple[date, date | datetime]:
     return value, value
 
 
+def find_bili_url_in_text(text: str) -> str | None:
+    normalized = html.unescape(text)
+    normalized = normalized.replace("\\/", "/")
+    normalized = normalized.replace("\\u002F", "/").replace("\\u002f", "/")
+    match = re.search(
+        r"https?://(?:www\.)?bilibili\.com/video/(?:BV[0-9A-Za-z]+|av\d+)[^'\"\\\s<>]*",
+        normalized,
+    )
+    if not match:
+        return None
+    return match.group(0).rstrip("),，。；;]")
+
+
+def find_bili_url_in_obj(value) -> str | None:
+    if isinstance(value, str):
+        return find_bili_url_in_text(value)
+    if isinstance(value, dict):
+        for item in value.values():
+            result = find_bili_url_in_obj(item)
+            if result:
+                return result
+    if isinstance(value, list):
+        for item in value:
+            result = find_bili_url_in_obj(item)
+            if result:
+                return result
+    return None
+
+
 def get_current_period() -> int:
     base = datetime(2018, 10, 16, 16, 0, 0)
     current = datetime.now()
@@ -173,21 +207,59 @@ async def get_bili_url() -> str:
         "https://docs.qq.com/dop-api/opendoc?"
         f"tab={sheet_id}&id={table_id}&outformat=1&normal=1"
     )
+    docs_json = await aiohttp_get(docs_url, headers=headers)
+    if docs_json:
+        result = find_bili_url_in_obj(docs_json)
+        if result:
+            logger.info(f"从腾讯文档接口获取暖暖视频链接: {result}")
+            return result
+
     docs_text = await aiohttp_get(docs_url, res_type="text", headers=headers)
     if docs_text:
-        match = re.search(r"https:\\?/\\?/www\.bilibili\.com/video/[^'\"\\]+", docs_text)
-        if match:
-            return match.group(0).replace("\\/", "/")
+        result = find_bili_url_in_text(docs_text)
+        if result:
+            logger.info(f"从腾讯文档文本获取暖暖视频链接: {result}")
+            return result
+
+    docs_page = await aiohttp_get(QQ_DOC_URL, res_type="text", headers=headers)
+    if docs_page:
+        result = find_bili_url_in_text(docs_page)
+        if result:
+            logger.info(f"从腾讯文档页面获取暖暖视频链接: {result}")
+            return result
 
     period = get_current_period()
     prefix = f"【FF14/时尚品鉴】第{period}期"
-    api_url = f"https://api.bilibili.com/x/space/arc/search?mid={BILI_USER_ID}&ps=5&pn=1"
+
+    search_url = (
+        "https://api.bilibili.com/x/web-interface/search/type?"
+        f"search_type=video&keyword={quote(prefix)}&page=1"
+    )
+    search_data = await aiohttp_get(search_url, headers={"referer": "https://search.bilibili.com/"})
+    if search_data and search_data.get("code") == 0:
+        videos = search_data.get("data", {}).get("result", [])
+        for video in videos:
+            title = re.sub(r"<.*?>", "", str(video.get("title", "")))
+            author = str(video.get("author", ""))
+            bvid = video.get("bvid")
+            if title.startswith(prefix) and bvid and ("游玩C哩酱" in author or not author):
+                result = f"https://www.bilibili.com/video/{bvid}"
+                logger.info(f"从bilibili搜索获取暖暖视频链接: {result}")
+                return result
+    elif search_data:
+        logger.warning(f"bilibili搜索接口返回异常: code={search_data.get('code')} message={search_data.get('message')}")
+
+    api_url = f"https://api.bilibili.com/x/space/arc/search?mid={BILI_USER_ID}&ps=10&pn=1"
     data = await aiohttp_get(api_url, headers={"referer": f"https://space.bilibili.com/{BILI_USER_ID}"})
     if data and data.get("code") == 0:
         videos = data.get("data", {}).get("list", {}).get("vlist", [])
         for video in videos:
             if str(video.get("title", "")).startswith(prefix):
-                return f"https://www.bilibili.com/video/{video['bvid']}"
+                result = f"https://www.bilibili.com/video/{video['bvid']}"
+                logger.info(f"从bilibili空间接口获取暖暖视频链接: {result}")
+                return result
+    elif data:
+        logger.warning(f"bilibili空间接口返回异常: code={data.get('code')} message={data.get('message')}")
 
     raise ValueError("找不到最新一期bilibili视频链接")
 
@@ -213,7 +285,7 @@ async def get_bili_detail(bili_url: str) -> str:
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.2.1",
+    "0.2.2",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -329,13 +401,14 @@ class TataruPlugin(Star):
                 continue
 
             info_item = [end_info, start_info, component.get("summary"), component.get("DESCRIPTION")]
+            sortable_item = (end_date, start_date, str(component.get("summary")), info_item)
             days_left = (end_date - today).days
             if days_left <= 2:
-                warn_ics.append(info_item)
+                warn_ics.append(sortable_item)
             elif days_left <= 7:
-                week_ics.append(info_item)
+                week_ics.append(sortable_item)
             else:
-                future_ics.append(info_item)
+                future_ics.append(sortable_item)
 
         warn_ics.sort()
         week_ics.sort()
@@ -345,15 +418,15 @@ class TataruPlugin(Star):
         if warn_ics:
             result += "【近2天结束】\n"
             for item in warn_ics:
-                result += format_calendar_item(item) + "\n"
+                result += format_calendar_item(item[3]) + "\n"
         if week_ics:
             result += "【近7天内】\n"
             for item in week_ics:
-                result += format_calendar_item(item) + "\n"
+                result += format_calendar_item(item[3]) + "\n"
         if future_ics:
             result += "【未来活动】\n"
             for item in future_ics:
-                result += format_calendar_item(item) + "\n"
+                result += format_calendar_item(item[3]) + "\n"
 
         if self.last_calendar_download_time:
             result += "\n日历更新时间: " + str(self.last_calendar_download_time).split(".")[0].replace("-", ".")
