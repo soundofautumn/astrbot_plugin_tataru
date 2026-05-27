@@ -53,6 +53,81 @@ BILI_USER_ID = 15503317
 DUNGEON_NOTE_URL = "https://ff14.org/duty"
 PARTY_FINDER_URL = "https://xivpf.littlenightmare.top/listings"
 DATA_CENTRES = ["陆行鸟", "莫古力", "猫小胖", "豆豆柴"]
+PARTY_CATEGORY_LABELS = {
+    "DutyRoulette": "随机任务",
+    "Dungeons": "迷宫挑战",
+    "Guildhests": "行会令",
+    "Trials": "讨伐歼灭战",
+    "Raids": "大型任务",
+    "HighEndDuty": "高难任务",
+    "Pvp": "PvP",
+    "GoldSaucer": "金碟",
+    "Fates": "危命任务",
+    "TreasureHunt": "寻宝",
+    "TheHunt": "狩猎",
+    "GatheringForays": "采集",
+    "DeepDungeons": "深层迷宫",
+    "AdventuringForays": "特殊场景探索",
+    "V&C Dungeon Finder": "多变迷宫",
+    "None": "其他",
+}
+PARTY_CATEGORY_ALIASES = {
+    "随机任务": "DutyRoulette",
+    "随机": "DutyRoulette",
+    "roulette": "DutyRoulette",
+    "dutyroulette": "DutyRoulette",
+    "迷宫挑战": "Dungeons",
+    "迷宫": "Dungeons",
+    "dungeons": "Dungeons",
+    "行会令": "Guildhests",
+    "guildhests": "Guildhests",
+    "讨伐歼灭战": "Trials",
+    "讨伐": "Trials",
+    "歼灭": "Trials",
+    "trials": "Trials",
+    "大型任务": "Raids",
+    "大型": "Raids",
+    "raids": "Raids",
+    "高难任务": "HighEndDuty",
+    "高难": "HighEndDuty",
+    "零式": "HighEndDuty",
+    "绝": "HighEndDuty",
+    "highendduty": "HighEndDuty",
+    "high-end": "HighEndDuty",
+    "high-endduty": "HighEndDuty",
+    "pvp": "Pvp",
+    "金碟": "GoldSaucer",
+    "goldsaucer": "GoldSaucer",
+    "危命任务": "Fates",
+    "危命": "Fates",
+    "fate": "Fates",
+    "fates": "Fates",
+    "寻宝": "TreasureHunt",
+    "宝物库": "TreasureHunt",
+    "treasurehunt": "TreasureHunt",
+    "狩猎": "TheHunt",
+    "恶名精英": "TheHunt",
+    "hunt": "TheHunt",
+    "thehunt": "TheHunt",
+    "采集": "GatheringForays",
+    "gatheringforays": "GatheringForays",
+    "深层迷宫": "DeepDungeons",
+    "死宫": "DeepDungeons",
+    "天宫": "DeepDungeons",
+    "deepdungeons": "DeepDungeons",
+    "特殊场景探索": "AdventuringForays",
+    "特殊战场": "AdventuringForays",
+    "adventuringforays": "AdventuringForays",
+    "fieldoperations": "AdventuringForays",
+    "多变迷宫": "V&C Dungeon Finder",
+    "异闻": "V&C Dungeon Finder",
+    "vc": "V&C Dungeon Finder",
+    "v&c": "V&C Dungeon Finder",
+    "v&cdungeonfinder": "V&C Dungeon Finder",
+    "其他": "None",
+    "无": "None",
+    "none": "None",
+}
 
 
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
@@ -159,7 +234,7 @@ def create_help_text() -> str:
 [仙人彩] 帮你选每周仙人仙彩数字
 [日历 (国服/国际服)] 获取FF近期活动日历
 [攻略 (副本等级) 副本名关键字 (文本)] 查简单副本攻略
-[招募 大区名] 获取指定大区招募板信息
+[招募 大区名 (分类) (数量)] 获取指定大区招募板信息
 [抽卡] 随机抽取一张FF14塔罗牌
 
 以下功能仍在迁移中：
@@ -224,6 +299,36 @@ def strip_html(text: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
     text = re.sub(r"<.*?>", "", text)
     return html.unescape(text).strip()
+
+
+def normalize_party_category(value: str | None) -> str | None:
+    if not value:
+        return None
+    key = re.sub(r"\s+", "", value.strip().lower())
+    return PARTY_CATEGORY_ALIASES.get(key)
+
+
+def parse_party_finder_query(query: str) -> tuple[str | None, str | None, int]:
+    parts = query.split()
+    if not parts:
+        return None, None, 10
+
+    data_centre = parts[0]
+    category = None
+    limit = 10
+    for part in parts[1:]:
+        if part.isdigit():
+            limit = max(1, min(int(part), 40))
+            continue
+        category = normalize_party_category(part) or category
+    return data_centre, category, limit
+
+
+def truncate_text(text: str, length: int = 80) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= length:
+        return text
+    return text[:length - 1] + "…"
 
 
 def find_bili_url_in_text(text: str) -> str | None:
@@ -409,21 +514,33 @@ async def get_dungeon_note(dungeon_info: str) -> tuple[str, bool]:
     return result_text, is_text
 
 
-async def get_party_finder_texts(data_centre: str) -> list[str]:
+async def get_party_finder_texts(data_centre: str, category: str | None = None, limit: int = 10) -> list[str]:
     all_info = await aiohttp_get(PARTY_FINDER_URL, res_type="text")
     if not all_info:
         raise ValueError("获取招募板失败")
 
+    category_list = re.findall(r'data-pf-category="(.*?)"', all_info)
     data_centre_list = re.findall(r'data-centre=".*?"', all_info)
     duty_list = re.findall(r'<div class="duty .*?</div>', all_info)
     description_list = re.findall(r'<div class="description">.*?</div>', all_info)
     meta_list = re.findall(r'class="text">.*?</span>', all_info)
+    total_list = re.findall(r'<div class="total">.*?</div>', all_info)
 
     text_list = []
     index_now = 1
-    entry_count = min(len(data_centre_list), len(duty_list), len(description_list), len(meta_list) // 4)
+    entry_count = min(
+        len(category_list),
+        len(data_centre_list),
+        len(duty_list),
+        len(description_list),
+        len(meta_list) // 4,
+        len(total_list),
+    )
     for index in range(entry_count):
         if data_centre not in data_centre_list[index]:
+            continue
+        category_now = html.unescape(category_list[index])
+        if category and category_now != category:
             continue
 
         data_centre_now = data_centre_list[index].split('"')[1].replace('"', "")
@@ -436,17 +553,17 @@ async def get_party_finder_texts(data_centre: str) -> list[str]:
         world_now = strip_html(meta_list[index * 4 + 1])
         expires_now = strip_html(meta_list[index * 4 + 2])
         updated_now = strip_html(meta_list[index * 4 + 3])
+        total_now = strip_html(total_list[index])
+        category_label = PARTY_CATEGORY_LABELS.get(category_now, category_now)
 
-        text_now = f"{index_now:03d} ============================================\n"
-        text_now += f"[{data_centre_now}] {duty_now}\n"
-        text_now += "------------------------------------------------\n"
-        text_now += description_now + "\n"
-        text_now += "------------------------------------------------\n"
-        text_now += creator_now + ", " + world_now + "\n" + expires_now + ", " + updated_now + "\n"
-        text_now += "------------------------------------------------\n\n"
+        text_now = f"{index_now:02d}. [{category_label}] {duty_now}\n"
+        text_now += f"    {truncate_text(description_now, 86)}\n"
+        text_now += f"    {creator_now} | {world_now} | {total_now} | {expires_now} | {updated_now}\n"
 
         index_now += 1
         text_list.append(text_now)
+        if len(text_list) >= limit:
+            break
     return text_list
 
 
@@ -454,7 +571,7 @@ async def get_party_finder_texts(data_centre: str) -> list[str]:
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.4.0",
+    "0.5.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -520,34 +637,34 @@ class TataruPlugin(Star):
     @filter.command("招募")
     async def party_finder(self, event: AstrMessageEvent):
         """获取指定大区招募板信息。"""
-        data_centre = command_args(event.message_str, "招募")
+        data_centre, category, limit = parse_party_finder_query(command_args(event.message_str, "招募"))
         if not data_centre:
-            yield event.plain_result("查招募版格式：招募 大区名称")
+            yield event.plain_result("查招募版格式：招募 大区名称 (分类) (数量)\n例：招募 陆行鸟 随机任务")
             return
         if data_centre not in DATA_CENTRES:
             yield event.plain_result("大区名称有误，限定" + str(DATA_CENTRES))
             return
 
         try:
-            text_list = await get_party_finder_texts(data_centre)
+            text_list = await get_party_finder_texts(data_centre, category=category, limit=limit)
         except Exception as exc:
             logger.warning(f"招募板获取失败: {exc}")
             yield event.plain_result("招募板获取失败，请稍后再试")
             return
 
         if not text_list:
-            yield event.plain_result("当前无人上传招募信息")
+            category_hint = f"「{PARTY_CATEGORY_LABELS.get(category, category)}」" if category else ""
+            yield event.plain_result(f"当前{data_centre}{category_hint}无人上传招募信息")
             return
 
         image_components = []
-        for index in range(0, len(text_list), 40):
-            final_text = (
-                "  \n  \n  \n"
-                f"    【 招 募 板 】 {index + 1} ~ {min(index + 40, len(text_list))}\n\n"
-            )
-            final_text += "".join(text_list[index:index + 40])
-            image_path = self.cache_dir / f"party_finder_{index // 40}.jpg"
-            text_to_image(final_text, image_path, width_now=25)
+        for index in range(0, len(text_list), 10):
+            category_label = PARTY_CATEGORY_LABELS.get(category, "全部") if category else "全部"
+            final_text = f"【{data_centre}招募板】分类：{category_label}  数量：{len(text_list)}\n"
+            final_text += "────────────────────────\n"
+            final_text += "\n".join(text_list[index:index + 10])
+            image_path = self.cache_dir / f"party_finder_{index // 10}.jpg"
+            text_to_image(final_text, image_path, width_now=42)
             image_components.append(Comp.Image.fromFileSystem(str(image_path)))
 
         yield event.chain_result(image_components)
