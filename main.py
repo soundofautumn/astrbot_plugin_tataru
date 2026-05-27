@@ -133,21 +133,6 @@ class TataruPlugin(Star):
         async for item in result:
             yield item
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
-    async def handle_plain_tataru_commands(self, event: AstrMessageEvent):
-        """兼容原 TataruBot2 不带斜杠的中文命令。"""
-        message = event.message_str.strip()
-        if message in {"帮帮忙", "塔塔露帮帮忙"}:
-            yield event.plain_result(create_help_text())
-        elif message == "选门":
-            yield event.plain_result("塔塔露在藏宝洞中横冲直撞！\n" + random_left_right())
-        elif message == "仙人彩":
-            yield event.plain_result("塔塔露觉得这个可以！\n" + random_lottery())
-        elif message == "抽卡":
-            result = self.create_tarot_result(event)
-            async for item in result:
-                yield item
-
     async def create_tarot_result(self, event: AstrMessageEvent):
         if self.tarot_dict is None:
             self.tarot_dict = load_tarot()
