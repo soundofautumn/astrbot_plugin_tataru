@@ -21,16 +21,33 @@ DATA_DIR = PLUGIN_DIR / "data"
 TAROT_DIR = DATA_DIR / "TarotImages"
 TAROT_JSON = TAROT_DIR / "ff14_tarot.json"
 FONT_PATH = DATA_DIR / "simhei.ttf"
-CALENDAR_PATH = DATA_DIR / "calendar.ics"
-CALENDAR_URL = (
-    "https://p66-caldav.icloud.com/published/2/"
-    "MTAyMTk3MTMxMjExMDIxOXsjasy7WUO0EcKVz7qGEuVjjTlRkgd6"
-    "WOZM171uxP_u-QM51M24lHzRlAQir-oodDRRTzZeusSLbw0snkZoqI4"
-)
-GOOGLE_CALENDAR_URL = (
-    "https://calendar.google.com/calendar/ical/"
-    "up88drvlnnh2t77hbpqq8v33i2cngfh7%40import.calendar.google.com/public/basic.ics"
-)
+DEFAULT_CN_CALENDAR_PATH = DATA_DIR / "calendar.ics"
+CALENDAR_SOURCES = {
+    "国服": {
+        "primary": (
+            "https://calendar.google.com/calendar/ical/"
+            "up88drvlnnh2t77hbpqq8v33i2cngfh7%40import.calendar.google.com/public/basic.ics"
+        ),
+        "fallback": (
+            "https://p66-caldav.icloud.com/published/2/"
+            "MTAyMTk3MTMxMjExMDIxOXsjasy7WUO0EcKVz7qGEuVjjTlRkgd6"
+            "WOZM171uxP_u-QM51M24lHzRlAQir-oodDRRTzZeusSLbw0snkZoqI4"
+        ),
+        "bundled": DEFAULT_CN_CALENDAR_PATH,
+    },
+    "国际服": {
+        "primary": (
+            "https://calendar.google.com/calendar/ical/"
+            "1gpnler51bgs1ajti10ao946ou367bf6%40import.calendar.google.com/public/basic.ics"
+        ),
+        "fallback": (
+            "https://p66-caldav.icloud.com/published/2/"
+            "MTAyMTk3MTMxMjExMDIxOXsjasy7WUO0EcKVz7qGEuVzSK8L9ZRQYf1sxUFeH1A1a22"
+            "GJLf6nfk2-CZNYMv5iOxCNlUR-umbJKFWWAUVRp8"
+        ),
+        "bundled": None,
+    },
+}
 QQ_DOC_URL = "https://docs.qq.com/sheet/DY2lCeEpwemZESm5q?tab=dewveu&c=A1A0A0"
 BILI_USER_ID = 15503317
 
@@ -137,7 +154,7 @@ def create_help_text() -> str:
 [暖暖] 本周时尚品鉴作业
 [选门] 帮你选藏宝洞的门
 [仙人彩] 帮你选每周仙人仙彩数字
-[日历] 获取FF近期活动日历
+[日历 (国服/国际服)] 获取FF近期活动日历
 [抽卡] 随机抽取一张FF14塔罗牌
 
 以下功能仍在迁移中：
@@ -156,6 +173,17 @@ def normalize_calendar_date(value) -> tuple[date, date | datetime]:
     if isinstance(value, datetime):
         return value.date(), value
     return value, value
+
+
+def normalize_calendar_server(value: str | None, default_server: str = "国服") -> str:
+    if not value:
+        return default_server
+    value = value.strip().lower()
+    if value in {"国际服", "国际", "global", "intl", "international", "gaia", "mana", "elemental"}:
+        return "国际服"
+    if value in {"国服", "国", "cn", "china", "陆行鸟", "莫古力", "猫小胖", "豆豆柴"}:
+        return "国服"
+    return default_server
 
 
 def find_bili_url_in_text(text: str) -> str | None:
@@ -285,22 +313,26 @@ async def get_bili_detail(bili_url: str) -> str:
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.2.2",
+    "0.3.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config=None):
         super().__init__(context)
+        self.config = config or {}
         self.tarot_dict: dict | None = None
         self.cache_dir = PLUGIN_DIR / ".cache"
         self.calendar_task: asyncio.Task | None = None
-        self.last_calendar_download_time: datetime | None = None
+        self.last_calendar_download_time: dict[str, datetime] = {}
 
     async def initialize(self):
         self.tarot_dict = load_tarot()
         self.cache_dir.mkdir(exist_ok=True)
         self.calendar_task = asyncio.create_task(self.download_calendar_loop())
         logger.info("Tataru AstrBot plugin initialized.")
+
+    def default_calendar_server(self) -> str:
+        return "国际服" if bool(self.config.get("use_global_calendar", False)) else "国服"
 
     @filter.command("帮帮忙")
     async def help(self, event: AstrMessageEvent):
@@ -320,7 +352,11 @@ class TataruPlugin(Star):
     @filter.command("日历")
     async def calendar(self, event: AstrMessageEvent):
         """获取FF近期活动日历。"""
-        yield event.plain_result(self.create_calendar_text())
+        command_parts = event.message_str.strip().split(maxsplit=1)
+        requested_server = command_parts[1] if len(command_parts) > 1 else None
+        server = normalize_calendar_server(requested_server, self.default_calendar_server())
+        await self.ensure_calendar(server)
+        yield event.plain_result(self.create_calendar_text(server))
 
     @filter.command("暖暖")
     async def nuannuan(self, event: AstrMessageEvent):
@@ -357,32 +393,52 @@ class TataruPlugin(Star):
     async def download_calendar_loop(self):
         while True:
             try:
-                await self.download_calendar_once()
+                await self.download_calendar_once(self.default_calendar_server())
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.warning(f"日历更新连接错误: {exc}")
             await asyncio.sleep(60 * 60)
 
-    async def download_calendar_once(self):
-        result = await aiohttp_get(CALENDAR_URL, res_type="bytes")
+    def calendar_cache_path(self, server: str) -> Path:
+        return self.cache_dir / f"calendar_{'global' if server == '国际服' else 'cn'}.ics"
+
+    async def download_calendar_once(self, server: str) -> bool:
+        sources = CALENDAR_SOURCES[server]
+        result = await aiohttp_get(sources["primary"], res_type="bytes")
         if result is None:
-            logger.info("日历主链接更新失败，尝试备用链接")
-            result = await aiohttp_get(GOOGLE_CALENDAR_URL, res_type="bytes")
+            logger.info(f"{server}日历主链接更新失败，尝试备用链接")
+            result = await aiohttp_get(sources["fallback"], res_type="bytes")
 
         if result is None:
-            logger.warning("日历更新失败，将使用本地缓存")
-            return
+            logger.warning(f"{server}日历更新失败，将使用本地缓存")
+            return False
 
-        CALENDAR_PATH.write_bytes(result)
-        self.last_calendar_download_time = datetime.now()
-        logger.info("日历更新成功")
+        self.calendar_cache_path(server).write_bytes(result)
+        self.last_calendar_download_time[server] = datetime.now()
+        logger.info(f"{server}日历更新成功")
+        return True
 
-    def create_calendar_text(self) -> str:
-        if not CALENDAR_PATH.exists():
-            return "日历文件不存在，请稍后再试"
+    async def ensure_calendar(self, server: str):
+        cache_path = self.calendar_cache_path(server)
+        if not cache_path.exists():
+            await self.download_calendar_once(server)
 
-        gcal = Calendar.from_ical(CALENDAR_PATH.read_bytes())
+    def calendar_read_path(self, server: str) -> Path | None:
+        cache_path = self.calendar_cache_path(server)
+        if cache_path.exists():
+            return cache_path
+        bundled_path = CALENDAR_SOURCES[server]["bundled"]
+        if bundled_path and bundled_path.exists():
+            return bundled_path
+        return None
+
+    def create_calendar_text(self, server: str) -> str:
+        calendar_path = self.calendar_read_path(server)
+        if calendar_path is None:
+            return f"{server}日历文件不存在，请稍后再试"
+
+        gcal = Calendar.from_ical(calendar_path.read_bytes())
         today = datetime.now().date()
         warn_ics = []
         week_ics = []
@@ -414,7 +470,7 @@ class TataruPlugin(Star):
         week_ics.sort()
         future_ics.sort()
 
-        result = "今天是 " + str(today).replace("-", ".") + "\n"
+        result = f"【{server}日历】\n今天是 " + str(today).replace("-", ".") + "\n"
         if warn_ics:
             result += "【近2天结束】\n"
             for item in warn_ics:
@@ -428,8 +484,8 @@ class TataruPlugin(Star):
             for item in future_ics:
                 result += format_calendar_item(item[3]) + "\n"
 
-        if self.last_calendar_download_time:
-            result += "\n日历更新时间: " + str(self.last_calendar_download_time).split(".")[0].replace("-", ".")
+        if server in self.last_calendar_download_time:
+            result += "\n日历更新时间: " + str(self.last_calendar_download_time[server]).split(".")[0].replace("-", ".")
         else:
             result += "\n日历更新时间: 使用本地缓存"
         return result

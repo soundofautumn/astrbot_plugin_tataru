@@ -13,6 +13,11 @@ TataruBot2 的 AstrBot 插件迁移版本。
 
 将 `astrbot_plugin_tataru` 目录放入 AstrBot 的 `data/plugins` 目录后，在 AstrBot WebUI 重载插件即可测试。
 
+## 配置
+
+- `默认使用国际服日历`：关闭时默认查询国服日历，开启后默认查询国际服日历。
+- 命令也支持临时指定服务器：`日历 国服`、`日历 国际服`。
+
 后续待迁移：
 
 - `看看微博`

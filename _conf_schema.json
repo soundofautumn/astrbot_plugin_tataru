@@ -1,0 +1,8 @@
+{
+  "use_global_calendar": {
+    "description": "默认使用国际服日历",
+    "type": "bool",
+    "default": false,
+    "hint": "关闭时默认查询国服日历；开启后默认查询国际服日历。也可以用“日历 国服”或“日历 国际服”临时指定。"
+  }
+}
