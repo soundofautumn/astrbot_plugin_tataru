@@ -25,6 +25,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 | `招募` | 查询 FF14 国服招募板 | 图片 |
 | `物品` | 查询物品基础信息和获取方式 | 图标 + 图片 |
 | `价格` | 查询市场板物价 | 图片 |
+| `房子` / `房屋` | 查询指定服务器空房 | 图片，参数错误时返回文本 |
 | `抽卡` | 随机抽取一张 FF14 塔罗牌 | 文字图片 + 塔罗牌图片 |
 
 ## 命令说明
@@ -161,6 +162,23 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 
 数据源：Universalis API；物品 ID 搜索复用 XIVAPI v2。价格查询不抓网页。
 
+### 房子
+
+```text
+房子 银泪湖 森都 S
+房屋 红玉海 海都 M
+```
+
+参数能力：
+
+- 服务器名使用国服服务器，例如 `银泪湖`、`红玉海`。
+- 主城名支持：森都、海都、沙都、白银、雪都，也支持海雾村、薰衣草苗圃、高脚孤丘、白银乡、穹顶皓天等完整地区名。
+- 房屋大小支持：`S`、`M`、`L`。
+
+返回图片内容包含：服务器、主城、房屋大小、区号、门牌号、价格、购买方式、土地类型和更新时间。没有空房时返回文本提示。
+
+数据源：优先使用 [艾欧泽亚售楼中心](https://house.ffxiv.cyou/) 的 `https://house.ffxiv.cyou/api/sales` API。
+
 ### 抽卡
 
 ```text
@@ -180,7 +198,6 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 ## 后续待迁移
 
 - `看看微博`
-- `房子`
 - `输出`
 
 ## 使用的项目和服务
@@ -192,6 +209,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 - [XIVAPI v2](https://xivapi-v2.xivcdn.com/zh-cn/)：FF14 游戏数据查询，用于物品、世界、副本等 ID 解析。
 - [Garland Tools 国服站](https://garlandtools.cn/)：物品详情、来源和图标数据源。
 - [Universalis](https://docs.universalis.app/)：市场板物价 API 数据源。
+- [艾欧泽亚售楼中心](https://house.ffxiv.cyou/)：房屋空房 API 数据源。
 - [FF14.org](https://ff14.org/duty)：副本攻略数据源。
 - [Google Calendar](https://calendar.google.com/)：活动日历主数据源。
 - [iCloud Calendar](https://www.icloud.com/calendar/)：活动日历备用数据源。

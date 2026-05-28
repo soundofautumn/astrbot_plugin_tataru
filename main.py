@@ -57,9 +57,63 @@ PARTY_FINDER_URL = "https://xivpf.littlenightmare.top/listings"
 PARTY_FINDER_API_V1_URL = "https://xivpf.littlenightmare.top/api/listings"
 PARTY_FINDER_API_V2_URL = "https://xivpf.littlenightmare.top/api/v2/listings"
 XIVAPI_BASE_URL = "https://xivapi-v2.xivcdn.com/api"
+HOUSE_API_URL = "https://house.ffxiv.cyou/api/sales"
 DATA_CENTRES = ["陆行鸟", "莫古力", "猫小胖", "豆豆柴"]
 CN_WORLD_DATA_CENTRES = set(DATA_CENTRES)
 CN_WORLD_NAME_CACHE: dict[str, dict] | None = None
+HOUSE_SERVER_IDS = {
+    "红玉海": 1167,
+    "神意之地": 1081,
+    "拉诺西亚": 1042,
+    "幻影群岛": 1044,
+    "萌芽池": 1060,
+    "宇宙和音": 1173,
+    "沃仙曦染": 1174,
+    "晨曦王座": 1175,
+    "白银乡": 1172,
+    "白金幻象": 1076,
+    "神拳痕": 1171,
+    "潮风亭": 1170,
+    "旅人栈桥": 1113,
+    "拂晓之间": 1121,
+    "龙巢神殿": 1166,
+    "梦羽宝境": 1176,
+    "紫水栈桥": 1043,
+    "延夏": 1169,
+    "静语庄园": 1106,
+    "摩杜纳": 1045,
+    "海猫茶屋": 1177,
+    "柔风海湾": 1178,
+    "琥珀原": 1179,
+    "水晶塔": 1192,
+    "银泪湖": 1183,
+    "太阳海岸": 1180,
+    "伊修加德": 1186,
+    "红茶川": 1201,
+}
+HOUSE_AREA_NAMES = ["海都", "森都", "沙都", "白银", "雪都"]
+HOUSE_AREA_ALIASES = {
+    "海雾村": "海都",
+    "海雾": "海都",
+    "薰衣草苗圃": "森都",
+    "薰衣草": "森都",
+    "高脚孤丘": "沙都",
+    "高脚": "沙都",
+    "白银乡": "白银",
+    "穹顶皓天": "雪都",
+    "穹顶": "雪都",
+}
+HOUSE_SIZE_NAMES = ["S", "M", "L"]
+HOUSE_PURCHASE_TYPES = {
+    0: "不可购买",
+    1: "先到先得",
+    2: "抽签",
+}
+HOUSE_REGION_TYPES = {
+    0: "保留",
+    1: "部队",
+    2: "个人",
+}
 MARKET_DEFAULT_SCOPE = "全大区"
 MARKET_DEFAULT_LISTINGS = 10
 MARKET_MAX_LISTINGS = 40
@@ -286,6 +340,13 @@ class MarketQuery:
     limit: int
 
 
+@dataclass
+class HouseQuery:
+    server_name: str | None
+    area_name: str | None
+    size_name: str | None
+
+
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -393,10 +454,11 @@ def create_help_text() -> str:
 [招募 大区名 (分类) (数量)] 获取指定大区招募板信息
 [物品 物品名] 查询物品信息
 [价格 (大区/服务器) 物品名 (HQ) (数量)] 查询市场物价
+[房子 服务器名 主城名 房子大小] 查询空房
 [抽卡] 随机抽取一张FF14塔罗牌
 
 以下功能仍在迁移中：
-[看看微博] [房子] [输出]
+[看看微博] [输出]
 """
 
 
@@ -1220,6 +1282,102 @@ async def resolve_party_world(search_terms: list[str]) -> tuple[dict | None, lis
     return None, search_terms
 
 
+def parse_house_query(query: str) -> HouseQuery:
+    parts = query.split()
+    server_name = parts[0] if len(parts) > 0 else None
+    area_name = HOUSE_AREA_ALIASES.get(parts[1], parts[1]) if len(parts) > 1 else None
+    size_name = parts[2].upper() if len(parts) > 2 else None
+    return HouseQuery(server_name=server_name, area_name=area_name, size_name=size_name)
+
+
+async def resolve_house_server_id(server_name: str) -> int | None:
+    if server_name in HOUSE_SERVER_IDS:
+        return HOUSE_SERVER_IDS[server_name]
+
+    try:
+        worlds = await load_cn_world_names()
+    except Exception as exc:
+        logger.warning(f"房屋服务器名解析失败: {exc}")
+        return None
+
+    world = worlds.get(server_name)
+    if world:
+        return int(world["id"])
+    return None
+
+
+def format_house_time(timestamp_value) -> str:
+    try:
+        timestamp = int(timestamp_value)
+    except (TypeError, ValueError):
+        return "未知"
+    if timestamp <= 0:
+        return "未知"
+    try:
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+    except (OSError, ValueError):
+        return "未知"
+
+
+async def fetch_house_sales(server_id: int) -> list[dict] | None:
+    query = urlencode({"server": server_id, "ts": int(datetime.now().timestamp())})
+    payload = await aiohttp_get(f"{HOUSE_API_URL}?{query}")
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return None
+
+
+async def create_house_text(query: HouseQuery) -> str:
+    if not query.server_name or not query.area_name or not query.size_name:
+        return (
+            "看空房格式：房子 服务器名 主城名 房子大小\n"
+            f"主城名：{'、'.join(HOUSE_AREA_NAMES)}\n"
+            f"房子大小：{'、'.join(HOUSE_SIZE_NAMES)}\n"
+            "例：房子 银泪湖 森都 S"
+        )
+    if query.area_name not in HOUSE_AREA_NAMES:
+        return "检查一下主城名称呀：\n" + "、".join(HOUSE_AREA_NAMES)
+    if query.size_name not in HOUSE_SIZE_NAMES:
+        return "检查一下房屋大小呀：\n" + "、".join(HOUSE_SIZE_NAMES)
+
+    server_id = await resolve_house_server_id(query.server_name)
+    if not server_id:
+        return "检查一下服务器名称呀：\n" + "、".join(HOUSE_SERVER_IDS)
+
+    sales = await fetch_house_sales(server_id)
+    if sales is None:
+        return "房屋数据获取失败，请稍后再试"
+
+    area_index = HOUSE_AREA_NAMES.index(query.area_name)
+    size_index = HOUSE_SIZE_NAMES.index(query.size_name)
+    matched = [
+        item
+        for item in sales
+        if item.get("Area") == area_index and item.get("Size") == size_index
+    ]
+    matched.sort(key=lambda item: (int(item.get("Slot") or 0), int(item.get("ID") or 0)))
+
+    title = f"【{query.server_name}空房】{query.area_name} {query.size_name}  数量：{len(matched)}"
+    if not matched:
+        return title + "\n没空房子了"
+
+    lines = [title, "────────────────────────"]
+    for index, item in enumerate(matched, start=1):
+        area_name = HOUSE_AREA_NAMES[int(item.get("Area") or 0)]
+        size_name = HOUSE_SIZE_NAMES[int(item.get("Size") or 0)]
+        slot = int(item.get("Slot") or 0) + 1
+        plot_id = int(item.get("ID") or 0)
+        price = int(item.get("Price") or 0)
+        purchase_type = HOUSE_PURCHASE_TYPES.get(int(item.get("PurchaseType") or 0), "未知")
+        region_type = HOUSE_REGION_TYPES.get(int(item.get("RegionType") or 0), "未知")
+        last_seen = format_house_time(item.get("LastSeen"))
+        lines.append(
+            f"{index:02d}. {area_name}{slot}区 {plot_id}号 {size_name} "
+            f"| {price // 10000}万 | {purchase_type} | {region_type} | 更新 {last_seen}"
+        )
+    return "\n".join(lines)
+
+
 async def enrich_party_finder_v2_listings(listings: list[dict]) -> list[dict]:
     world_ids = set()
     duty_ids = set()
@@ -1504,7 +1662,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.10.1",
+    "0.11.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -1663,6 +1821,36 @@ class TataruPlugin(Star):
         image_path = self.cache_dir / "market.jpg"
         text_to_image(market_text, image_path, width_now=42)
         yield event.image_result(str(image_path))
+
+    @filter.command("房屋")
+    @filter.command("房子")
+    async def house(self, event: AstrMessageEvent):
+        """查询指定服务器空房。"""
+        house_info = command_args(event.message_str, "房子")
+        if house_info == event.message_str:
+            house_info = command_args(event.message_str, "房屋")
+        house_query = parse_house_query(house_info)
+        try:
+            house_text = await create_house_text(house_query)
+        except Exception as exc:
+            logger.warning(f"房屋查询失败: {exc}")
+            yield event.plain_result("房屋查询失败，请稍后再试")
+            return
+
+        if "────────────────────────" not in house_text:
+            yield event.plain_result(house_text)
+            return
+
+        parts = house_text.split("\n")
+        header = "\n".join(parts[:2])
+        rows = parts[2:]
+        components = []
+        for index in range(0, len(rows), 30):
+            page_text = header + "\n" + "\n".join(rows[index:index + 30])
+            image_path = self.cache_dir / f"house_{index // 30}.jpg"
+            text_to_image(page_text, image_path, width_now=44)
+            components.append(Comp.Image.fromFileSystem(str(image_path)))
+        yield event.chain_result(components)
 
     @filter.command("抽卡")
     async def tarot(self, event: AstrMessageEvent):
