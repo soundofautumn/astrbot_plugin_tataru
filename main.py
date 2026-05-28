@@ -312,20 +312,26 @@ def normalize_party_category(value: str | None) -> str | None:
     return PARTY_CATEGORY_ALIASES.get(key)
 
 
-def parse_party_finder_query(query: str) -> tuple[str | None, str | None, int]:
+def parse_party_finder_query(query: str) -> tuple[str | None, str | None, str | None, int]:
     parts = query.split()
     if not parts:
-        return None, None, 10
+        return None, None, None, 10
 
     data_centre = parts[0]
     category = None
+    search_terms = []
     limit = 10
     for part in parts[1:]:
         if part.isdigit():
             limit = max(1, min(int(part), 40))
             continue
-        category = normalize_party_category(part) or category
-    return data_centre, category, limit
+        normalized_category = normalize_party_category(part)
+        if normalized_category:
+            category = normalized_category
+            continue
+        search_terms.append(part)
+    search_text = " ".join(search_terms).strip() or None
+    return data_centre, category, search_text, limit
 
 
 def truncate_text(text: str, length: int = 80) -> str:
@@ -612,6 +618,7 @@ def extract_party_finder_listings(payload) -> list[dict] | None:
 async def get_party_finder_texts_api_v1(
     data_centre: str,
     category: str | None = None,
+    search_text: str | None = None,
     limit: int = 10,
 ) -> list[str] | None:
     params = {
@@ -621,6 +628,8 @@ async def get_party_finder_texts_api_v1(
     }
     if category:
         params["category"] = category
+    if search_text:
+        params["search"] = search_text
     payload = await aiohttp_get(f"{PARTY_FINDER_API_V1_URL}?{urlencode(params)}")
     listings = extract_party_finder_listings(payload)
     if listings is None:
@@ -634,7 +643,12 @@ async def get_party_finder_texts_api_v1(
     return text_list
 
 
-async def get_party_finder_texts_html(data_centre: str, category: str | None = None, limit: int = 10) -> list[str]:
+async def get_party_finder_texts_html(
+    data_centre: str,
+    category: str | None = None,
+    search_text: str | None = None,
+    limit: int = 10,
+) -> list[str]:
     all_info = await aiohttp_get(PARTY_FINDER_URL, res_type="text")
     if not all_info:
         raise ValueError("获取招募板失败")
@@ -674,6 +688,10 @@ async def get_party_finder_texts_html(data_centre: str, category: str | None = N
         expires_now = strip_html(meta_list[index * 4 + 2])
         updated_now = strip_html(meta_list[index * 4 + 3])
         total_now = strip_html(total_list[index])
+        if search_text:
+            search_area = f"{duty_now} {description_now} {creator_now} {world_now}".lower()
+            if search_text.lower() not in search_area:
+                continue
         category_label = PARTY_CATEGORY_LABELS.get(category_now, category_now)
 
         text_now = f"{index_now:02d}. [{category_label}] {duty_now}\n"
@@ -687,22 +705,37 @@ async def get_party_finder_texts_html(data_centre: str, category: str | None = N
     return text_list
 
 
-async def get_party_finder_texts(data_centre: str, category: str | None = None, limit: int = 10) -> list[str]:
+async def get_party_finder_texts(
+    data_centre: str,
+    category: str | None = None,
+    search_text: str | None = None,
+    limit: int = 10,
+) -> list[str]:
     try:
-        api_texts = await get_party_finder_texts_api_v1(data_centre, category=category, limit=limit)
+        api_texts = await get_party_finder_texts_api_v1(
+            data_centre,
+            category=category,
+            search_text=search_text,
+            limit=limit,
+        )
         if api_texts is not None:
             return api_texts
     except Exception as exc:
         logger.warning(f"招募板 API v1 获取失败，尝试 HTML 兜底: {exc}")
 
-    return await get_party_finder_texts_html(data_centre, category=category, limit=limit)
+    return await get_party_finder_texts_html(
+        data_centre,
+        category=category,
+        search_text=search_text,
+        limit=limit,
+    )
 
 
 @register(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.6.1",
+    "0.6.2",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -768,16 +801,21 @@ class TataruPlugin(Star):
     @filter.command("招募")
     async def party_finder(self, event: AstrMessageEvent):
         """获取指定大区招募板信息。"""
-        data_centre, category, limit = parse_party_finder_query(command_args(event.message_str, "招募"))
+        data_centre, category, search_text, limit = parse_party_finder_query(command_args(event.message_str, "招募"))
         if not data_centre:
-            yield event.plain_result("查招募版格式：招募 大区名称 (分类) (数量)\n例：招募 陆行鸟 随机任务")
+            yield event.plain_result("查招募版格式：招募 大区名称 (分类或关键词) (数量)\n例：招募 陆行鸟 随机任务")
             return
         if data_centre not in DATA_CENTRES:
             yield event.plain_result("大区名称有误，限定" + str(DATA_CENTRES))
             return
 
         try:
-            text_list = await get_party_finder_texts(data_centre, category=category, limit=limit)
+            text_list = await get_party_finder_texts(
+                data_centre,
+                category=category,
+                search_text=search_text,
+                limit=limit,
+            )
         except Exception as exc:
             logger.warning(f"招募板获取失败: {exc}")
             yield event.plain_result("招募板获取失败，请稍后再试")
@@ -785,13 +823,15 @@ class TataruPlugin(Star):
 
         if not text_list:
             category_hint = f"「{PARTY_CATEGORY_LABELS.get(category, category)}」" if category else ""
-            yield event.plain_result(f"当前{data_centre}{category_hint}无人上传招募信息")
+            search_hint = f"包含「{search_text}」的" if search_text else ""
+            yield event.plain_result(f"当前{data_centre}{category_hint}{search_hint}无人上传招募信息")
             return
 
         image_components = []
         for index in range(0, len(text_list), 10):
             category_label = PARTY_CATEGORY_LABELS.get(category, "全部") if category else "全部"
-            final_text = f"【{data_centre}招募板】分类：{category_label}  数量：{len(text_list)}\n"
+            search_label = search_text or "无"
+            final_text = f"【{data_centre}招募板】分类：{category_label}  搜索：{search_label}  数量：{len(text_list)}\n"
             final_text += "────────────────────────\n"
             final_text += "\n".join(text_list[index:index + 10])
             image_path = self.cache_dir / f"party_finder_{index // 10}.jpg"
