@@ -1353,9 +1353,22 @@ def find_logs_job(job_name: str | None) -> dict | None:
 def find_logs_boss(boss_name: str | None) -> dict | None:
     if not boss_name:
         return None
+    query = boss_name.strip().casefold()
+    if not query:
+        return None
+    candidates: list[tuple[dict, list[str]]] = []
     for item in load_json_list(BOSS_JSON):
         aliases = item.get("nickname", [])
-        if boss_name in {item.get("name"), item.get("cn_name")} or boss_name in aliases:
+        names = [
+            name.strip().casefold()
+            for name in [item.get("name"), item.get("cn_name"), *aliases]
+            if isinstance(name, str) and name.strip()
+        ]
+        candidates.append((item, names))
+        if query in names:
+            return item
+    for item, names in candidates:
+        if any(query in name or name in query for name in names):
             return item
     return None
 
@@ -2257,7 +2270,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.13.0",
+    "0.13.1",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):

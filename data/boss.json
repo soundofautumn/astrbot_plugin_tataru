@@ -4165,5 +4165,34 @@
     "cn_region": [
       "标准阵容构成 (6.4)###3"
     ]
+  },
+  {
+    "pk": 1083,
+    "quest": 72,
+    "zone_name": "Trials III (Extreme)",
+    "cn_zone_name": "讨伐歼灭战：高难度 III",
+    "name": "Doomtrain",
+    "cn_name": "格莱杨拉波尔",
+    "nickname": [
+      "格莱杨拉波尔歼殛战"
+    ],
+    "patch": 0,
+    "savage": 100,
+    "region": [
+      "Standard Comps (7.4)###1",
+      "Standard Comps (7.4)###3",
+      "Standard Comps (7.4)###5",
+      "Standard Comps (7.5)###7",
+      "Standard Comps (7.5)###9",
+      "Standard Comps (7.5)###11"
+    ],
+    "cn_region": [
+      "标准阵容构成 (7.4)###1",
+      "标准阵容构成 (7.4)###3",
+      "标准阵容构成 (7.4)###5",
+      "标准阵容构成 (7.5)###7",
+      "标准阵容构成 (7.5)###9",
+      "标准阵容构成 (7.5)###11"
+    ]
   }
 ]
