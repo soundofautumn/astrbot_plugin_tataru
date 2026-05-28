@@ -51,8 +51,10 @@ CALENDAR_SOURCES = {
 }
 QQ_DOC_URL = "https://docs.qq.com/sheet/DY2lCeEpwemZESm5q?tab=dewveu&c=A1A0A0"
 BILI_USER_ID = 15503317
-WEIBO_URL = "https://m.weibo.cn/api/container/getIndex?type=uid&value=1797798792&containerid=1076031797798792"
-WEIBO_REFERER = "https://m.weibo.cn/u/1797798792"
+WEIBO_UID = "1797798792"
+WEIBO_API_BASE = "https://m.weibo.cn/api/container/getIndex"
+WEIBO_MOBILE_BASE = "https://m.weibo.cn"
+WEIBO_WEB_BASE = "https://weibo.com"
 DUNGEON_NOTE_URL = "https://ff14.org/duty"
 GARLAND_BASE_URL = "https://garlandtools.cn"
 PARTY_FINDER_URL = "https://xivpf.littlenightmare.top/listings"
@@ -584,48 +586,93 @@ def truncate_text(text: str, length: int = 80) -> str:
 
 def clean_weibo_title(text: str) -> str:
     title = strip_html(text)
+    title = re.sub(r"全文$", "", title).strip()
     title = re.sub(r"#(?:最终幻想14|FF14)#", "", title)
     title = re.sub(r"\s+", " ", title).strip()
     return truncate_text(title or "微博内容为空", 90)
 
 
 def is_pinned_weibo_card(card: dict, mblog: dict) -> bool:
-    if mblog.get("isTop") or mblog.get("is_top"):
-        return True
-    title = str(card.get("title", "") or card.get("desc", ""))
-    return "置顶" in title
+    title = mblog.get("title")
+    title_text = title.get("text") if isinstance(title, dict) else ""
+    return any(
+        [
+            mblog.get("isTop"),
+            mblog.get("is_top"),
+            card.get("is_top"),
+            mblog.get("top"),
+            title_text == "置顶",
+            "置顶" in str(card.get("title", "") or card.get("desc", "")),
+        ]
+    )
 
 
-async def get_ff_weibo_text(cookie: str | None = None, limit: int = 5) -> str:
+def get_weibo_headers(cookie: str | None = None, uid: str = WEIBO_UID) -> dict:
     headers = {
-        "Referer": WEIBO_REFERER,
+        "User-Agent": (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
+            "Mobile/15E148 Safari/604.1"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": f"{WEIBO_MOBILE_BASE}/u/{uid}",
         "MWeibo-Pwa": "1",
         "X-Requested-With": "XMLHttpRequest",
     }
     if cookie:
         headers["Cookie"] = cookie
+    return headers
 
-    payload = await aiohttp_get(WEIBO_URL, headers=headers)
-    cards = payload.get("data", {}).get("cards") if isinstance(payload, dict) else None
-    if not isinstance(cards, list):
-        return "微博获取失败，可能需要在插件配置中填写微博 Cookie 后重试。"
 
+async def fetch_weibo_cards(cookie: str | None = None, uid: str = WEIBO_UID) -> list[dict]:
+    params = urlencode({"type": "uid", "value": uid, "containerid": f"107603{uid}"})
+    url = f"{WEIBO_API_BASE}?{params}"
+    timeout = aiohttp.ClientTimeout(total=20)
+    async with aiohttp.ClientSession(timeout=timeout, headers=get_weibo_headers(cookie, uid)) as session:
+        async with session.get(url) as response:
+            if response.status != 200:
+                logger.warning(f"微博接口请求失败，状态码：{response.status}")
+                return []
+            try:
+                payload = await response.json(content_type=None)
+            except Exception as exc:
+                logger.warning(f"微博接口 JSON 解析失败: {exc}")
+                return []
+
+    if not isinstance(payload, dict) or payload.get("ok") != 1:
+        logger.warning("微博接口返回状态异常")
+        return []
+    cards = payload.get("data", {}).get("cards")
+    return cards if isinstance(cards, list) else []
+
+
+def extract_valid_weibo_mblogs(cards: list[dict]) -> list[dict]:
     result = []
     for card in cards:
-        if not isinstance(card, dict):
+        if not isinstance(card, dict) or card.get("card_type") != 9:
             continue
         mblog = card.get("mblog")
         if not isinstance(mblog, dict):
             continue
         if is_pinned_weibo_card(card, mblog):
             continue
-
-        bid = mblog.get("bid")
-        if not bid:
+        if not mblog.get("bid"):
             continue
+        result.append(mblog)
+    return result
+
+
+async def get_ff_weibo_text(cookie: str | None = None, limit: int = 5) -> str:
+    cards = await fetch_weibo_cards(cookie)
+    if not cards:
+        return "微博获取失败，可能需要在插件配置中填写微博 Cookie 后重试。"
+
+    result = []
+    for mblog in extract_valid_weibo_mblogs(cards):
+        bid = str(mblog["bid"])
         title = clean_weibo_title(str(mblog.get("text") or ""))
         created_at = str(mblog.get("created_at") or "未知时间")
-        weibo_url = "https://m.weibo.cn/status/" + str(bid)
+        weibo_url = f"{WEIBO_WEB_BASE}/{WEIBO_UID}/{bid}"
         result.append(f"【{len(result) + 1}】{title} {created_at}\n{weibo_url}")
         if len(result) >= limit:
             break
@@ -1828,7 +1875,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.12.0",
+    "0.12.1",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
