@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 from datetime import date, datetime
 import html
 import json
@@ -56,6 +57,8 @@ PARTY_FINDER_API_V1_URL = "https://xivpf.littlenightmare.top/api/listings"
 PARTY_FINDER_API_V2_URL = "https://xivpf.littlenightmare.top/api/v2/listings"
 XIVAPI_BASE_URL = "https://xivapi-v2.xivcdn.com/api"
 DATA_CENTRES = ["陆行鸟", "莫古力", "猫小胖", "豆豆柴"]
+CN_WORLD_DATA_CENTRES = set(DATA_CENTRES)
+CN_WORLD_NAME_CACHE: dict[str, dict] | None = None
 PARTY_CATEGORY_LABELS = {
     "DutyRoulette": "随机任务",
     "Dungeons": "迷宫挑战",
@@ -157,6 +160,101 @@ PARTY_CATEGORY_ALIASES = {
     "无": "None",
     "none": "None",
 }
+PARTY_JOB_ALIASES = {
+    "骑士": 19,
+    "骑": 19,
+    "pld": 19,
+    "武僧": 20,
+    "僧": 20,
+    "mnk": 20,
+    "战士": 21,
+    "战": 21,
+    "war": 21,
+    "龙骑": 22,
+    "龙骑士": 22,
+    "龙": 22,
+    "drg": 22,
+    "诗人": 23,
+    "吟游诗人": 23,
+    "诗": 23,
+    "brd": 23,
+    "白魔": 24,
+    "白魔法师": 24,
+    "白": 24,
+    "whm": 24,
+    "黑魔": 25,
+    "黑魔法师": 25,
+    "黑": 25,
+    "blm": 25,
+    "召唤": 27,
+    "召唤师": 27,
+    "召": 27,
+    "smn": 27,
+    "学者": 28,
+    "学": 28,
+    "sch": 28,
+    "忍者": 30,
+    "忍": 30,
+    "nin": 30,
+    "机工": 31,
+    "机工士": 31,
+    "机": 31,
+    "mch": 31,
+    "暗黑": 32,
+    "暗黑骑士": 32,
+    "暗骑": 32,
+    "drk": 32,
+    "占星": 33,
+    "占星术士": 33,
+    "占": 33,
+    "ast": 33,
+    "武士": 34,
+    "侍": 34,
+    "sam": 34,
+    "赤魔": 35,
+    "赤魔法师": 35,
+    "赤": 35,
+    "rdm": 35,
+    "青魔": 36,
+    "青魔法师": 36,
+    "青": 36,
+    "blu": 36,
+    "绝枪": 37,
+    "绝枪战士": 37,
+    "枪刃": 37,
+    "gnb": 37,
+    "舞者": 38,
+    "舞": 38,
+    "dnc": 38,
+    "钐镰": 39,
+    "钐镰客": 39,
+    "镰刀": 39,
+    "镰": 39,
+    "rpr": 39,
+    "贤者": 40,
+    "贤": 40,
+    "sge": 40,
+    "蝰蛇": 41,
+    "蝰蛇剑士": 41,
+    "蝰": 41,
+    "vpr": 41,
+    "绘灵": 42,
+    "绘灵法师": 42,
+    "绘": 42,
+    "pct": 42,
+    "魔兽": 43,
+    "魔兽使": 43,
+    "bst": 43,
+}
+
+
+@dataclass
+class PartyFinderQuery:
+    data_centre: str | None
+    category: str | None
+    search_terms: list[str]
+    job_ids: list[int]
+    limit: int
 
 
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
@@ -337,16 +435,25 @@ def normalize_party_category(value: str | None) -> str | None:
     return PARTY_CATEGORY_ALIASES.get(key)
 
 
-def parse_party_finder_query(query: str) -> tuple[str | None, str | None, str | None, int]:
+def normalize_party_job(value: str | None) -> int | None:
+    if not value:
+        return None
+    key = re.sub(r"\s+", "", value.strip().lower())
+    return PARTY_JOB_ALIASES.get(key)
+
+
+def parse_party_finder_query(query: str) -> PartyFinderQuery:
     parts = query.split()
     if not parts:
-        return None, None, None, 10
+        return PartyFinderQuery(None, None, [], [], 10)
 
-    data_centre = parts[0]
+    data_centre = parts[0] if parts[0] in DATA_CENTRES else None
+    remain_parts = parts[1:] if data_centre else parts
     category = None
     search_terms = []
+    job_ids = []
     limit = 10
-    for part in parts[1:]:
+    for part in remain_parts:
         if part.isdigit():
             limit = max(1, min(int(part), 40))
             continue
@@ -354,9 +461,13 @@ def parse_party_finder_query(query: str) -> tuple[str | None, str | None, str | 
         if normalized_category:
             category = normalized_category
             continue
+        job_id = normalize_party_job(part)
+        if job_id:
+            if job_id not in job_ids:
+                job_ids.append(job_id)
+            continue
         search_terms.append(part)
-    search_text = " ".join(search_terms).strip() or None
-    return data_centre, category, search_text, limit
+    return PartyFinderQuery(data_centre, category, search_terms, job_ids, limit)
 
 
 def truncate_text(text: str, length: int = 80) -> str:
@@ -663,6 +774,60 @@ async def get_xivapi_sheet_rows(sheet: str, row_ids: set[int], fields: str) -> d
     return {int(row["row_id"]): row for row in rows if isinstance(row, dict) and row.get("row_id") is not None}
 
 
+async def load_cn_world_names() -> dict[str, dict]:
+    global CN_WORLD_NAME_CACHE
+    if CN_WORLD_NAME_CACHE is not None:
+        return CN_WORLD_NAME_CACHE
+
+    worlds = {}
+    after = None
+    seen_after = set()
+    while True:
+        query = {
+            "fields": "Name,DataCenter.Name",
+            "language": "chs",
+            "limit": 500,
+        }
+        if after is not None:
+            query["after"] = after
+        payload = await aiohttp_get(f"{XIVAPI_BASE_URL}/sheet/World?{urlencode(query)}")
+        rows = payload.get("rows") if isinstance(payload, dict) else None
+        if not isinstance(rows, list) or not rows:
+            break
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_id = row.get("row_id")
+            name = xivapi_field_text(row, "Name")
+            data_centre = xivapi_field_text(row, "DataCenter", "Name")
+            if row_id and row_id >= 1000 and name and data_centre in CN_WORLD_DATA_CENTRES:
+                worlds[name] = {"id": int(row_id), "data_centre": data_centre, "name": name}
+
+        last_row_id = rows[-1].get("row_id")
+        if not last_row_id or last_row_id in seen_after:
+            break
+        seen_after.add(last_row_id)
+        if last_row_id >= 65535:
+            break
+        after = last_row_id
+
+    CN_WORLD_NAME_CACHE = worlds
+    return worlds
+
+
+async def resolve_party_world(search_terms: list[str]) -> tuple[dict | None, list[str]]:
+    if not search_terms:
+        return None, search_terms
+    worlds = await load_cn_world_names()
+    for index, term in enumerate(search_terms):
+        world = worlds.get(term)
+        if world:
+            remain_terms = search_terms[:index] + search_terms[index + 1:]
+            return world, remain_terms
+    return None, search_terms
+
+
 async def enrich_party_finder_v2_listings(listings: list[dict]) -> list[dict]:
     world_ids = set()
     duty_ids = set()
@@ -729,20 +894,27 @@ def extract_party_finder_listings(payload) -> list[dict] | None:
 
 
 async def get_party_finder_texts_api_v1(
-    data_centre: str,
+    data_centre: str | None = None,
+    world_name: str | None = None,
     category: str | None = None,
     search_text: str | None = None,
+    job_ids: list[int] | None = None,
     limit: int = 10,
 ) -> list[str] | None:
     params = {
         "page": 1,
         "per_page": max(1, min(limit, 100)),
-        "datacenter": data_centre,
     }
+    if data_centre:
+        params["datacenter"] = data_centre
+    if world_name:
+        params["world"] = world_name
     if category:
         params["category"] = category
     if search_text:
         params["search"] = search_text
+    if job_ids:
+        params["jobs"] = ",".join(str(job_id) for job_id in job_ids)
     payload = await aiohttp_get(f"{PARTY_FINDER_API_V1_URL}?{urlencode(params)}")
     listings = extract_party_finder_listings(payload)
     if listings is None:
@@ -757,25 +929,55 @@ async def get_party_finder_texts_api_v1(
 
 
 async def get_party_finder_texts_api_v2(
-    data_centre: str,
+    data_centre: str | None = None,
+    world_id: int | None = None,
     category: str | None = None,
     search_text: str | None = None,
+    job_ids: list[int] | None = None,
     limit: int = 10,
 ) -> list[str] | None:
     fetch_limit = 100 if search_text else max(1, min(limit, 100))
     params = {
         "page": 1,
         "per_page": fetch_limit,
-        "datacenter": data_centre,
     }
+    if data_centre:
+        params["datacenter"] = data_centre
     if category:
         category_id = PARTY_CATEGORY_IDS.get(category)
         if category_id is None:
             return None
         params["category_id"] = category_id
-    payload = await aiohttp_get(f"{PARTY_FINDER_API_V2_URL}?{urlencode(params)}")
-    listings = extract_party_finder_listings(payload)
-    if listings is None:
+    if job_ids:
+        params["job_ids"] = ",".join(str(job_id) for job_id in job_ids)
+
+    param_sets = []
+    if world_id:
+        created_world_params = dict(params)
+        created_world_params["created_world_id"] = world_id
+        home_world_params = dict(params)
+        home_world_params["home_world_id"] = world_id
+        param_sets.extend([created_world_params, home_world_params])
+    else:
+        param_sets.append(params)
+
+    listings = []
+    seen_ids = set()
+    for param_set in param_sets:
+        payload = await aiohttp_get(f"{PARTY_FINDER_API_V2_URL}?{urlencode(param_set)}")
+        payload_listings = extract_party_finder_listings(payload)
+        if payload_listings is None:
+            return None
+        for listing in payload_listings:
+            if not isinstance(listing, dict):
+                continue
+            listing_id = listing.get("id")
+            if listing_id in seen_ids:
+                continue
+            seen_ids.add(listing_id)
+            listings.append(listing)
+
+    if not listings:
         return None
 
     valid_listings = [listing for listing in listings[:fetch_limit] if isinstance(listing, dict)]
@@ -792,11 +994,15 @@ async def get_party_finder_texts_api_v2(
 
 
 async def get_party_finder_texts_html(
-    data_centre: str,
+    data_centre: str | None = None,
+    world_name: str | None = None,
     category: str | None = None,
     search_text: str | None = None,
+    job_ids: list[int] | None = None,
     limit: int = 10,
 ) -> list[str]:
+    if job_ids:
+        return []
     all_info = await aiohttp_get(PARTY_FINDER_URL, res_type="text")
     if not all_info:
         raise ValueError("获取招募板失败")
@@ -819,7 +1025,7 @@ async def get_party_finder_texts_html(
         len(total_list),
     )
     for index in range(entry_count):
-        if data_centre not in data_centre_list[index]:
+        if data_centre and data_centre not in data_centre_list[index]:
             continue
         category_now = html.unescape(category_list[index])
         if category and category_now != category:
@@ -833,6 +1039,8 @@ async def get_party_finder_texts_html(
         description_now = strip_html(description_now)
         creator_now = strip_html(meta_list[index * 4])
         world_now = strip_html(meta_list[index * 4 + 1])
+        if world_name and world_name not in world_now:
+            continue
         expires_now = strip_html(meta_list[index * 4 + 2])
         updated_now = strip_html(meta_list[index * 4 + 3])
         total_now = strip_html(total_list[index])
@@ -854,16 +1062,21 @@ async def get_party_finder_texts_html(
 
 
 async def get_party_finder_texts(
-    data_centre: str,
+    data_centre: str | None = None,
+    world_name: str | None = None,
+    world_id: int | None = None,
     category: str | None = None,
     search_text: str | None = None,
+    job_ids: list[int] | None = None,
     limit: int = 10,
 ) -> list[str]:
     try:
         v2_texts = await get_party_finder_texts_api_v2(
             data_centre,
+            world_id=world_id,
             category=category,
             search_text=search_text,
+            job_ids=job_ids,
             limit=limit,
         )
         if v2_texts is not None:
@@ -874,8 +1087,10 @@ async def get_party_finder_texts(
     try:
         api_texts = await get_party_finder_texts_api_v1(
             data_centre,
+            world_name=world_name,
             category=category,
             search_text=search_text,
+            job_ids=job_ids,
             limit=limit,
         )
         if api_texts is not None:
@@ -885,8 +1100,10 @@ async def get_party_finder_texts(
 
     return await get_party_finder_texts_html(
         data_centre,
+        world_name=world_name,
         category=category,
         search_text=search_text,
+        job_ids=job_ids,
         limit=limit,
     )
 
@@ -895,7 +1112,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.7.1",
+    "0.8.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -961,20 +1178,31 @@ class TataruPlugin(Star):
     @filter.command("招募")
     async def party_finder(self, event: AstrMessageEvent):
         """获取指定大区招募板信息。"""
-        data_centre, category, search_text, limit = parse_party_finder_query(command_args(event.message_str, "招募"))
-        if not data_centre:
-            yield event.plain_result("查招募版格式：招募 大区名称 (分类或关键词) (数量)\n例：招募 陆行鸟 随机任务")
+        query = parse_party_finder_query(command_args(event.message_str, "招募"))
+        if not query.data_centre and not query.search_terms and not query.category and not query.job_ids:
+            yield event.plain_result("查招募版格式：招募 (大区或服务器) (分类或关键词或职业) (数量)\n例：招募 陆行鸟 随机任务")
             return
-        if data_centre not in DATA_CENTRES:
-            yield event.plain_result("大区名称有误，限定" + str(DATA_CENTRES))
-            return
+
+        try:
+            world, search_terms = await resolve_party_world(query.search_terms)
+        except Exception as exc:
+            logger.warning(f"招募服务器名解析失败: {exc}")
+            world, search_terms = None, query.search_terms
+        search_text = " ".join(search_terms).strip() or None
+        data_centre = query.data_centre
+        if world:
+            data_centre = data_centre or world["data_centre"]
+        scope_label = world["name"] if world else (data_centre or "全服")
 
         try:
             text_list = await get_party_finder_texts(
                 data_centre,
-                category=category,
+                world_name=world["name"] if world else None,
+                world_id=world["id"] if world else None,
+                category=query.category,
                 search_text=search_text,
-                limit=limit,
+                job_ids=query.job_ids,
+                limit=query.limit,
             )
         except Exception as exc:
             logger.warning(f"招募板获取失败: {exc}")
@@ -982,16 +1210,18 @@ class TataruPlugin(Star):
             return
 
         if not text_list:
-            category_hint = f"「{PARTY_CATEGORY_LABELS.get(category, category)}」" if category else ""
+            category_hint = f"「{PARTY_CATEGORY_LABELS.get(query.category, query.category)}」" if query.category else ""
             search_hint = f"包含「{search_text}」的" if search_text else ""
-            yield event.plain_result(f"当前{data_centre}{category_hint}{search_hint}无人上传招募信息")
+            job_hint = "指定职业的" if query.job_ids else ""
+            yield event.plain_result(f"当前{scope_label}{category_hint}{search_hint}{job_hint}无人上传招募信息")
             return
 
         image_components = []
         for index in range(0, len(text_list), 10):
-            category_label = PARTY_CATEGORY_LABELS.get(category, "全部") if category else "全部"
+            category_label = PARTY_CATEGORY_LABELS.get(query.category, "全部") if query.category else "全部"
             search_label = search_text or "无"
-            final_text = f"【{data_centre}招募板】分类：{category_label}  搜索：{search_label}  数量：{len(text_list)}\n"
+            job_label = "有" if query.job_ids else "无"
+            final_text = f"【{scope_label}招募板】分类：{category_label}  搜索：{search_label}  职业：{job_label}  数量：{len(text_list)}\n"
             final_text += "────────────────────────\n"
             final_text += "\n".join(text_list[index:index + 10])
             image_path = self.cache_dir / f"party_finder_{index // 10}.jpg"
