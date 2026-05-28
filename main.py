@@ -90,6 +90,9 @@ PARTY_CATEGORY_ALIASES = {
     "大型": "Raids",
     "raids": "Raids",
     "高难任务": "HighEndDuty",
+    "高难度任务": "HighEndDuty",
+    "高难度": "HighEndDuty",
+    "高难本": "HighEndDuty",
     "高难": "HighEndDuty",
     "零式": "HighEndDuty",
     "绝": "HighEndDuty",
@@ -699,7 +702,7 @@ async def get_party_finder_texts(data_centre: str, category: str | None = None, 
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.6.0",
+    "0.6.1",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
