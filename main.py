@@ -55,6 +55,7 @@ WEIBO_UID = "1797798792"
 WEIBO_API_BASE = "https://m.weibo.cn/api/container/getIndex"
 WEIBO_MOBILE_BASE = "https://m.weibo.cn"
 WEIBO_WEB_BASE = "https://weibo.com"
+WEIBO_WEB_TIMELINE_API = "https://weibo.com/ajax/statuses/mymblog"
 DUNGEON_NOTE_URL = "https://ff14.org/duty"
 GARLAND_BASE_URL = "https://garlandtools.cn"
 PARTY_FINDER_URL = "https://xivpf.littlenightmare.top/listings"
@@ -624,6 +625,21 @@ def get_weibo_headers(cookie: str | None = None, uid: str = WEIBO_UID) -> dict:
     return headers
 
 
+def get_weibo_web_headers(cookie: str | None = None, uid: str = WEIBO_UID) -> dict:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": f"{WEIBO_WEB_BASE}/u/{uid}",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    if cookie:
+        headers["Cookie"] = cookie
+    return headers
+
+
 async def fetch_weibo_cards(cookie: str | None = None, uid: str = WEIBO_UID) -> list[dict]:
     params = urlencode({"type": "uid", "value": uid, "containerid": f"107603{uid}"})
     url = f"{WEIBO_API_BASE}?{params}"
@@ -646,6 +662,31 @@ async def fetch_weibo_cards(cookie: str | None = None, uid: str = WEIBO_UID) -> 
     return cards if isinstance(cards, list) else []
 
 
+async def fetch_weibo_web_statuses(cookie: str | None = None, uid: str = WEIBO_UID) -> list[dict]:
+    params = urlencode({"uid": uid, "page": 1, "feature": 0})
+    url = f"{WEIBO_WEB_TIMELINE_API}?{params}"
+    timeout = aiohttp.ClientTimeout(total=20)
+    async with aiohttp.ClientSession(timeout=timeout, headers=get_weibo_web_headers(cookie, uid)) as session:
+        async with session.get(url) as response:
+            if response.status != 200:
+                logger.warning(f"微博网页端接口请求失败，状态码：{response.status}")
+                return []
+            try:
+                payload = await response.json(content_type=None)
+            except Exception as exc:
+                logger.warning(f"微博网页端接口 JSON 解析失败: {exc}")
+                return []
+
+    if not isinstance(payload, dict) or payload.get("ok") != 1:
+        logger.warning("微博网页端接口返回状态异常")
+        return []
+    data = payload.get("data", {})
+    if not isinstance(data, dict):
+        return []
+    statuses = data.get("list") or data.get("statuses")
+    return statuses if isinstance(statuses, list) else []
+
+
 def extract_valid_weibo_mblogs(cards: list[dict]) -> list[dict]:
     result = []
     for card in cards:
@@ -662,24 +703,52 @@ def extract_valid_weibo_mblogs(cards: list[dict]) -> list[dict]:
     return result
 
 
+def extract_valid_weibo_web_statuses(statuses: list[dict]) -> list[dict]:
+    result = []
+    for status in statuses:
+        if not isinstance(status, dict):
+            continue
+        title = status.get("title")
+        title_text = title.get("text") if isinstance(title, dict) else ""
+        if any([status.get("isTop"), status.get("is_top"), status.get("top"), title_text == "置顶"]):
+            continue
+        if not (status.get("mblogid") or status.get("bid")):
+            continue
+        result.append(status)
+    return result
+
+
+def format_weibo_status(index: int, status: dict, uid: str = WEIBO_UID) -> str:
+    bid = str(status.get("bid") or status.get("mblogid"))
+    title = clean_weibo_title(str(status.get("text_raw") or status.get("text") or ""))
+    created_at = str(status.get("created_at") or "未知时间")
+    weibo_url = f"{WEIBO_WEB_BASE}/{uid}/{bid}"
+    return f"【{index}】{title} {created_at}\n{weibo_url}"
+
+
 async def get_ff_weibo_text(cookie: str | None = None, limit: int = 5) -> str:
     cards = await fetch_weibo_cards(cookie)
-    if not cards:
-        return "微博获取失败，可能需要在插件配置中填写微博 Cookie 后重试。"
-
-    result = []
+    statuses = []
     for mblog in extract_valid_weibo_mblogs(cards):
-        bid = str(mblog["bid"])
-        title = clean_weibo_title(str(mblog.get("text") or ""))
-        created_at = str(mblog.get("created_at") or "未知时间")
-        weibo_url = f"{WEIBO_WEB_BASE}/{WEIBO_UID}/{bid}"
-        result.append(f"【{len(result) + 1}】{title} {created_at}\n{weibo_url}")
-        if len(result) >= limit:
+        statuses.append(mblog)
+        if len(statuses) >= limit:
             break
 
-    if not result:
+    if len(statuses) < limit and cookie:
+        web_statuses = await fetch_weibo_web_statuses(cookie)
+        seen_ids = {str(item.get("bid") or item.get("mblogid")) for item in statuses}
+        for status in extract_valid_weibo_web_statuses(web_statuses):
+            status_id = str(status.get("bid") or status.get("mblogid"))
+            if status_id in seen_ids:
+                continue
+            statuses.append(status)
+            seen_ids.add(status_id)
+            if len(statuses) >= limit:
+                break
+
+    if not statuses:
         return "没有获取到最新微博，可能是微博接口结构变化或需要配置微博 Cookie。"
-    return "\n".join(result)
+    return "\n".join(format_weibo_status(index, item) for index, item in enumerate(statuses[:limit], start=1))
 
 
 def find_bili_url_in_text(text: str) -> str | None:
@@ -1875,7 +1944,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.12.1",
+    "0.12.2",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
