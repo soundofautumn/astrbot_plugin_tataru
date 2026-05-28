@@ -60,6 +60,16 @@ XIVAPI_BASE_URL = "https://xivapi-v2.xivcdn.com/api"
 DATA_CENTRES = ["陆行鸟", "莫古力", "猫小胖", "豆豆柴"]
 CN_WORLD_DATA_CENTRES = set(DATA_CENTRES)
 CN_WORLD_NAME_CACHE: dict[str, dict] | None = None
+MARKET_DEFAULT_SCOPE = "全大区"
+MARKET_DEFAULT_LISTINGS = 10
+MARKET_MAX_LISTINGS = 40
+MARKET_SCOPE_ALIASES = {
+    "鸟": "陆行鸟",
+    "猪": "莫古力",
+    "猫": "猫小胖",
+    "狗": "豆豆柴",
+    "柔风": "柔风海湾",
+}
 GARLAND_CORE_DATA: dict | None = None
 NODE_NAME_BY_TYPE = {
     0: "矿脉",
@@ -267,6 +277,15 @@ class PartyFinderQuery:
     limit: int
 
 
+@dataclass
+class MarketQuery:
+    scope_name: str
+    scope_type: str
+    item_name: str | None
+    hq: bool
+    limit: int
+
+
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -373,10 +392,11 @@ def create_help_text() -> str:
 [攻略 (副本等级) 副本名关键字 (文本)] 查简单副本攻略
 [招募 大区名 (分类) (数量)] 获取指定大区招募板信息
 [物品 物品名] 查询物品信息
+[价格 (大区/服务器) 物品名 (HQ) (数量)] 查询市场物价
 [抽卡] 随机抽取一张FF14塔罗牌
 
 以下功能仍在迁移中：
-[看看微博] [价格] [房子] [输出]
+[看看微博] [房子] [输出]
 """
 
 
@@ -479,6 +499,10 @@ def parse_party_finder_query(query: str) -> PartyFinderQuery:
             continue
         search_terms.append(part)
     return PartyFinderQuery(data_centre, category, search_terms, job_ids, limit)
+
+
+def is_hq_token(value: str) -> bool:
+    return value.strip().lower() in {"hq", "高品质", "高品", "hq品"}
 
 
 def truncate_text(text: str, length: int = 80) -> str:
@@ -905,6 +929,127 @@ async def create_item_info(item_name: str, cache_dir: Path) -> tuple[str, Path |
         logger.warning(f"物品图标下载失败: {exc}")
         has_icon = False
     return text, icon_path if has_icon else None
+
+
+async def parse_market_query(query: str) -> MarketQuery:
+    parts = query.split()
+    scope_name = MARKET_DEFAULT_SCOPE
+    scope_type = "all"
+    item_parts = []
+    hq = False
+    limit = MARKET_DEFAULT_LISTINGS
+    try:
+        worlds = await load_cn_world_names()
+    except Exception as exc:
+        logger.warning(f"物价服务器名解析失败: {exc}")
+        worlds = {}
+
+    for part in parts:
+        normalized_scope = MARKET_SCOPE_ALIASES.get(part, part)
+        if part.isdigit():
+            limit = max(1, min(int(part), MARKET_MAX_LISTINGS))
+            continue
+        if is_hq_token(part):
+            hq = True
+            continue
+        if normalized_scope in DATA_CENTRES:
+            scope_name = normalized_scope
+            scope_type = "dc"
+            continue
+        if normalized_scope in worlds:
+            scope_name = normalized_scope
+            scope_type = "world"
+            continue
+        item_parts.append(part)
+
+    return MarketQuery(
+        scope_name=scope_name,
+        scope_type=scope_type,
+        item_name=" ".join(item_parts).strip() or None,
+        hq=hq,
+        limit=limit,
+    )
+
+
+async def fetch_market_listings(location: str, item_id: int, fetch_limit: int) -> tuple[dict | None, str]:
+    params = urlencode({"listings": fetch_limit, "entries": 0})
+    url = f"https://universalis.app/api/v2/{quote(location)}/{item_id}?{params}"
+    payload = await aiohttp_get(url)
+    if not isinstance(payload, dict):
+        return None, location
+    return payload, location
+
+
+def format_market_time(timestamp_ms) -> str:
+    try:
+        return datetime.fromtimestamp(int(timestamp_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError):
+        return "未知"
+
+
+async def create_market_text(query: MarketQuery) -> str:
+    if not query.item_name:
+        return "查物价格式：价格 (大区/服务器) 物品名 (HQ) (数量)\n例：价格 陆行鸟 铁矿 HQ 10"
+
+    item_id, real_name = await search_xivapi_item_id(query.item_name)
+    if not item_id:
+        return f'所查询物品"{query.item_name}"不存在'
+
+    locations = DATA_CENTRES if query.scope_type == "all" else [query.scope_name]
+    fetch_limit = min(max(query.limit * (5 if query.hq else 2), 20), 100)
+    results = await asyncio.gather(
+        *(fetch_market_listings(location, item_id, fetch_limit) for location in locations),
+        return_exceptions=True,
+    )
+
+    listings = []
+    upload_times = []
+    errors = []
+    for result in results:
+        if isinstance(result, Exception):
+            errors.append(str(result))
+            continue
+        payload, location = result
+        if not payload:
+            errors.append(f"{location} 无返回")
+            continue
+        if payload.get("lastUploadTime"):
+            upload_times.append(payload.get("lastUploadTime"))
+        for listing in payload.get("listings", []):
+            if query.hq and not listing.get("hq"):
+                continue
+            item = dict(listing)
+            item["_scope"] = location
+            listings.append(item)
+
+    listings.sort(
+        key=lambda item: (
+            item.get("pricePerUnit") if item.get("pricePerUnit") is not None else 10**18,
+            item.get("total") if item.get("total") is not None else 10**18,
+        )
+    )
+    listings = listings[:query.limit]
+
+    hq_label = "HQ" if query.hq else "全部"
+    lines = [f"【{real_name or query.item_name} 价格】范围：{query.scope_name}  品质：{hq_label}  数量：{len(listings)}"]
+    if not listings:
+        lines.append("未查询到数据，可能是物品不可交易、暂时无人上架或 Universalis 暂时不可用。")
+        if errors:
+            lines.append("接口错误：" + "；".join(errors[:3]))
+        return "\n".join(lines)
+
+    for index, listing in enumerate(listings, start=1):
+        price = listing.get("pricePerUnit", 0)
+        quantity = listing.get("quantity", 0)
+        total = listing.get("total", price * quantity if price and quantity else 0)
+        quality = "HQ" if listing.get("hq") else "NQ"
+        world = listing.get("worldName") or listing.get("_scope", "")
+        retainer = listing.get("retainerName") or "未知雇员"
+        lines.append(f"{index:02d}. {price:,} x{quantity} = {total:,} {quality} @ {world} / {retainer}")
+
+    if upload_times:
+        lines.append("更新时间：" + format_market_time(max(upload_times)))
+    return "\n".join(lines)
 
 
 def party_optional_text(value) -> str:
@@ -1359,7 +1504,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.9.0",
+    "0.10.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -1499,6 +1644,25 @@ class TataruPlugin(Star):
             components.append(Comp.Image.fromFileSystem(str(icon_path)))
         components.append(Comp.Image.fromFileSystem(str(text_image_path)))
         yield event.chain_result(components)
+
+    @filter.command("价格")
+    async def market(self, event: AstrMessageEvent):
+        """查询市场物价。"""
+        market_query = await parse_market_query(command_args(event.message_str, "价格"))
+        if not market_query.item_name:
+            yield event.plain_result("查物价格式：价格 (大区/服务器) 物品名 (HQ) (数量)\n例：价格 陆行鸟 铁矿 HQ 10")
+            return
+
+        try:
+            market_text = await create_market_text(market_query)
+        except Exception as exc:
+            logger.warning(f"物价查询失败: {exc}")
+            yield event.plain_result("物价查询失败，请稍后再试")
+            return
+
+        image_path = self.cache_dir / "market.jpg"
+        text_to_image(market_text, image_path, width_now=42)
+        yield event.image_result(str(image_path))
 
     @filter.command("抽卡")
     async def tarot(self, event: AstrMessageEvent):
