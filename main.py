@@ -61,6 +61,8 @@ HOUSE_API_URL = "https://house.ffxiv.cyou/api/sales"
 DATA_CENTRES = ["陆行鸟", "莫古力", "猫小胖", "豆豆柴"]
 CN_WORLD_DATA_CENTRES = set(DATA_CENTRES)
 CN_WORLD_NAME_CACHE: dict[str, dict] | None = None
+HOUSE_DEFAULT_LISTINGS = 10
+HOUSE_MAX_LISTINGS = 40
 HOUSE_SERVER_IDS = {
     "红玉海": 1167,
     "神意之地": 1081,
@@ -345,6 +347,9 @@ class HouseQuery:
     server_name: str | None
     area_name: str | None
     size_name: str | None
+    ward: int | None
+    plot_id: int | None
+    limit: int
 
 
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
@@ -1282,12 +1287,99 @@ async def resolve_party_world(search_terms: list[str]) -> tuple[dict | None, lis
     return None, search_terms
 
 
+def parse_house_number(value: str) -> int | None:
+    value = value.strip()
+    if value.isdigit():
+        return int(value)
+    chinese_digits = {
+        "零": 0,
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+    }
+    if not value:
+        return None
+    if value == "十":
+        return 10
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = chinese_digits.get(left, 1 if left == "" else None)
+        ones = chinese_digits.get(right, 0 if right == "" else None)
+        if tens is None or ones is None:
+            return None
+        return tens * 10 + ones
+    return chinese_digits.get(value)
+
+
+def normalize_house_area_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    return HOUSE_AREA_ALIASES.get(value, value if value in HOUSE_AREA_NAMES else None)
+
+
+def parse_house_area_token(token: str) -> tuple[str | None, str]:
+    area_labels = sorted(set(HOUSE_AREA_NAMES) | set(HOUSE_AREA_ALIASES), key=len, reverse=True)
+    for label in area_labels:
+        if token.startswith(label):
+            return normalize_house_area_name(label), token[len(label):]
+    return None, token
+
+
 def parse_house_query(query: str) -> HouseQuery:
     parts = query.split()
-    server_name = parts[0] if len(parts) > 0 else None
-    area_name = HOUSE_AREA_ALIASES.get(parts[1], parts[1]) if len(parts) > 1 else None
-    size_name = parts[2].upper() if len(parts) > 2 else None
-    return HouseQuery(server_name=server_name, area_name=area_name, size_name=size_name)
+    server_name = parts[0] if parts else None
+    area_name = None
+    size_name = None
+    ward = None
+    plot_id = None
+    limit = HOUSE_DEFAULT_LISTINGS
+
+    for raw_part in parts[1:]:
+        part = raw_part.strip().upper()
+        if not part:
+            continue
+        if part in HOUSE_SIZE_NAMES:
+            size_name = part
+            continue
+        if part.isdigit():
+            limit = max(1, min(int(part), HOUSE_MAX_LISTINGS))
+            continue
+
+        area_from_token, rest = parse_house_area_token(raw_part.strip())
+        if area_from_token:
+            area_name = area_from_token
+            if not rest:
+                continue
+        else:
+            rest = raw_part.strip()
+
+        ward_match = re.search(r"([0-9]+|[一二三四五六七八九十]+)区", rest)
+        if ward_match:
+            ward = parse_house_number(ward_match.group(1))
+
+        plot_match = re.search(r"([0-9]+|[一二三四五六七八九十]+)号", rest)
+        if plot_match:
+            plot_id = parse_house_number(plot_match.group(1))
+
+        normalized_area = normalize_house_area_name(raw_part.strip())
+        if normalized_area:
+            area_name = normalized_area
+
+    return HouseQuery(
+        server_name=server_name,
+        area_name=area_name,
+        size_name=size_name,
+        ward=ward,
+        plot_id=plot_id,
+        limit=limit,
+    )
 
 
 async def resolve_house_server_id(server_name: str) -> int | None:
@@ -1328,17 +1420,21 @@ async def fetch_house_sales(server_id: int) -> list[dict] | None:
 
 
 async def create_house_text(query: HouseQuery) -> str:
-    if not query.server_name or not query.area_name or not query.size_name:
+    if not query.server_name:
         return (
-            "看空房格式：房子 服务器名 主城名 房子大小\n"
+            "看空房格式：房子 服务器名 (主城/房区/房号) (房子大小) (数量)\n"
             f"主城名：{'、'.join(HOUSE_AREA_NAMES)}\n"
             f"房子大小：{'、'.join(HOUSE_SIZE_NAMES)}\n"
-            "例：房子 银泪湖 森都 S"
+            f"默认返回前 {HOUSE_DEFAULT_LISTINGS} 条，最多 {HOUSE_MAX_LISTINGS} 条\n"
+            "例：房子 银泪湖 森都 S\n"
+            "例：房子 银泪湖 森都一区\n"
+            "例：房子 银泪湖 森都一区5号\n"
+            "例：房子 银泪湖 森都 5号"
         )
-    if query.area_name not in HOUSE_AREA_NAMES:
-        return "检查一下主城名称呀：\n" + "、".join(HOUSE_AREA_NAMES)
-    if query.size_name not in HOUSE_SIZE_NAMES:
-        return "检查一下房屋大小呀：\n" + "、".join(HOUSE_SIZE_NAMES)
+    if query.plot_id is not None and not query.area_name:
+        return "房号筛选需要带主城区域，例如：房子 银泪湖 森都5号 或 房子 银泪湖 森都一区5号"
+    if query.ward is not None and not query.area_name:
+        return "房区筛选需要带主城区域，例如：房子 银泪湖 森都一区"
 
     server_id = await resolve_house_server_id(query.server_name)
     if not server_id:
@@ -1348,21 +1444,35 @@ async def create_house_text(query: HouseQuery) -> str:
     if sales is None:
         return "房屋数据获取失败，请稍后再试"
 
-    area_index = HOUSE_AREA_NAMES.index(query.area_name)
-    size_index = HOUSE_SIZE_NAMES.index(query.size_name)
-    matched = [
-        item
-        for item in sales
-        if item.get("Area") == area_index and item.get("Size") == size_index
-    ]
+    matched = sales
+    filters = []
+    if query.area_name:
+        area_index = HOUSE_AREA_NAMES.index(query.area_name)
+        matched = [item for item in matched if item.get("Area") == area_index]
+        filters.append(query.area_name)
+    if query.ward is not None:
+        matched = [item for item in matched if int(item.get("Slot") or 0) + 1 == query.ward]
+        filters.append(f"{query.ward}区")
+    if query.plot_id is not None:
+        matched = [item for item in matched if int(item.get("ID") or 0) == query.plot_id]
+        filters.append(f"{query.plot_id}号")
+    if query.size_name:
+        size_index = HOUSE_SIZE_NAMES.index(query.size_name)
+        matched = [item for item in matched if item.get("Size") == size_index]
+        filters.append(query.size_name)
     matched.sort(key=lambda item: (int(item.get("Slot") or 0), int(item.get("ID") or 0)))
 
-    title = f"【{query.server_name}空房】{query.area_name} {query.size_name}  数量：{len(matched)}"
+    filter_text = " ".join(filters) if filters else "全部"
+    total = len(matched)
+    shown = matched[:query.limit]
+    title = f"【{query.server_name}空房】筛选：{filter_text}  数量：{total}"
     if not matched:
         return title + "\n没空房子了"
 
     lines = [title, "────────────────────────"]
-    for index, item in enumerate(matched, start=1):
+    if total > len(shown):
+        lines.append(f"仅显示前 {len(shown)} 条，可在命令末尾添加数量，最多 {HOUSE_MAX_LISTINGS} 条。")
+    for index, item in enumerate(shown, start=1):
         area_name = HOUSE_AREA_NAMES[int(item.get("Area") or 0)]
         size_name = HOUSE_SIZE_NAMES[int(item.get("Size") or 0)]
         slot = int(item.get("Slot") or 0) + 1
@@ -1662,7 +1772,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.11.1",
+    "0.11.2",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
