@@ -61,6 +61,7 @@ WEIBO_WEB_BASE = "https://weibo.com"
 WEIBO_WEB_TIMELINE_API = "https://weibo.com/ajax/statuses/mymblog"
 FFLOGS_HOSTS = {False: "https://www.fflogs.com", True: "https://cn.fflogs.com"}
 FFLOGS_PERCENTILES = [10, 25, 50, 75, 95, 99, 100]
+FFLOGS_STAT_AGGREGATES = ["amount", "persecond", "persecondamount", "raw", "normalized"]
 FFLOGS_METADATA_QUERY = """
 query {
   worldData {
@@ -1615,16 +1616,18 @@ async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) ->
         params = {"keystone": "15"}
         if query.dps_type != "rdps":
             params["dpstype"] = query.dps_type
-        url = (
-            f"{host}/zone/statistics/table/"
-            f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/6/{int(region_id)}/100/1000/7/"
-            f"{boss['patch']}/Global/{job['name']}/All/0/amount/single/0/-1/?"
-            f"{urlencode(params)}"
-        )
-        logger.info(f"FFLogs statistics table URL: {url}")
-        page = await aiohttp_get(url, res_type="text", headers={"Referer": host})
-        if isinstance(page, str) and "data.push" in page:
-            return page, region_info
+        for aggregate in FFLOGS_STAT_AGGREGATES:
+            url = (
+                f"{host}/zone/statistics/table/"
+                f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/6/{int(region_id)}/100/1000/7/"
+                f"{boss['patch']}/Global/{job['name']}/All/0/{aggregate}/single/0/-1/?"
+                f"{urlencode(params)}"
+            )
+            logger.info(f"FFLogs statistics table URL: {url}")
+            page = await aiohttp_get(url, res_type="text", headers={"Referer": host})
+            if isinstance(page, str) and "data.push" in page:
+                logger.info(f"FFLogs statistics aggregate matched: {aggregate}")
+                return page, f"{region_info} / {aggregate}"
     return None
 
 

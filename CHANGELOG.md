@@ -1,5 +1,12 @@
 # 更新日志
 
+## v0.14.7
+
+### 修复
+
+- `输出` 查询 FFLogs statistics table 时按多个聚合路径依次尝试，并在 `amount` 不可用时回退到 `normalized`，避免直接返回无数据。
+- `输出` 日志会记录命中的 statistics 聚合路径，便于继续和 FFLogs 网页实际请求对齐。
+
 ## v0.14.6
 
 ### 修复
