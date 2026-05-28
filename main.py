@@ -53,6 +53,8 @@ BILI_USER_ID = 15503317
 DUNGEON_NOTE_URL = "https://ff14.org/duty"
 PARTY_FINDER_URL = "https://xivpf.littlenightmare.top/listings"
 PARTY_FINDER_API_V1_URL = "https://xivpf.littlenightmare.top/api/listings"
+PARTY_FINDER_API_V2_URL = "https://xivpf.littlenightmare.top/api/v2/listings"
+XIVAPI_BASE_URL = "https://xivapi-v2.xivcdn.com/api"
 DATA_CENTRES = ["陆行鸟", "莫古力", "猫小胖", "豆豆柴"]
 PARTY_CATEGORY_LABELS = {
     "DutyRoulette": "随机任务",
@@ -71,6 +73,29 @@ PARTY_CATEGORY_LABELS = {
     "AdventuringForays": "特殊场景探索",
     "V&C Dungeon Finder": "多变迷宫",
     "None": "其他",
+}
+PARTY_CATEGORY_IDS = {
+    "None": 0,
+    "DutyRoulette": 2,
+    "Dungeons": 4,
+    "Guildhests": 8,
+    "Trials": 16,
+    "Raids": 32,
+    "HighEndDuty": 64,
+    "Pvp": 128,
+    "GoldSaucer": 256,
+    "Fates": 512,
+    "TreasureHunt": 1024,
+    "TheHunt": 2048,
+    "GatheringForays": 4096,
+    "DeepDungeons": 8192,
+    "AdventuringForays": 16384,
+    "V&C Dungeon Finder": 32768,
+}
+PARTY_CATEGORY_ID_LABELS = {
+    category_id: PARTY_CATEGORY_LABELS[category]
+    for category, category_id in PARTY_CATEGORY_IDS.items()
+    if category in PARTY_CATEGORY_LABELS
 }
 PARTY_CATEGORY_ALIASES = {
     "随机任务": "DutyRoulette",
@@ -571,7 +596,10 @@ def format_party_updated_at(updated_at: str) -> str:
 
 def format_party_finder_api_entry(index: int, listing: dict) -> str:
     category_now = party_optional_text(listing.get("category"))
-    category_label = PARTY_CATEGORY_LABELS.get(category_now, category_now or "未知分类")
+    if not category_now and listing.get("category_id") is not None:
+        category_label = PARTY_CATEGORY_ID_LABELS.get(int(listing["category_id"]), f"分类ID {listing['category_id']}")
+    else:
+        category_label = PARTY_CATEGORY_LABELS.get(category_now, category_now or "未知分类")
     duty_now = party_optional_text(listing.get("duty")) or "无"
     description_now = party_optional_text(listing.get("description")) or "无描述"
     creator_now = party_optional_text(listing.get("name") or listing.get("player_name")) or "未知"
@@ -600,6 +628,73 @@ def format_party_finder_api_entry(index: int, listing: dict) -> str:
     text_now += f"    {truncate_text(description_now, 86)}\n"
     text_now += f"    {meta_text}\n"
     return text_now
+
+
+def xivapi_field_text(row: dict | None, *path: str) -> str:
+    current = row.get("fields", {}) if isinstance(row, dict) else {}
+    for part in path:
+        if not isinstance(current, dict):
+            return ""
+        current = current.get(part)
+        if isinstance(current, dict) and "fields" in current:
+            current = current["fields"]
+    return party_optional_text(current)
+
+
+async def get_xivapi_sheet_rows(sheet: str, row_ids: set[int], fields: str) -> dict[int, dict]:
+    ids = sorted(row_id for row_id in row_ids if row_id)
+    if not ids:
+        return {}
+
+    params = urlencode(
+        {
+            "rows": ",".join(str(row_id) for row_id in ids),
+            "fields": fields,
+            "language": "chs",
+        }
+    )
+    payload = await aiohttp_get(f"{XIVAPI_BASE_URL}/sheet/{sheet}?{params}")
+    if not isinstance(payload, dict):
+        return {}
+
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return {}
+    return {int(row["row_id"]): row for row in rows if isinstance(row, dict) and row.get("row_id") is not None}
+
+
+async def enrich_party_finder_v2_listings(listings: list[dict]) -> list[dict]:
+    world_ids = set()
+    duty_ids = set()
+    for listing in listings:
+        for key in ("created_world_id", "home_world_id"):
+            try:
+                world_ids.add(int(listing.get(key) or 0))
+            except (TypeError, ValueError):
+                pass
+        try:
+            duty_ids.add(int(listing.get("duty_id") or 0))
+        except (TypeError, ValueError):
+            pass
+
+    world_rows, duty_rows = await asyncio.gather(
+        get_xivapi_sheet_rows("World", world_ids, "Name,DataCenter.Name"),
+        get_xivapi_sheet_rows("ContentFinderCondition", duty_ids, "Name,ContentType.Name"),
+    )
+
+    enriched = []
+    for listing in listings:
+        item = dict(listing)
+        created_world = world_rows.get(int(item.get("created_world_id") or 0))
+        home_world = world_rows.get(int(item.get("home_world_id") or 0))
+        duty = duty_rows.get(int(item.get("duty_id") or 0))
+
+        item["created_world"] = xivapi_field_text(created_world, "Name")
+        item["home_world"] = xivapi_field_text(home_world, "Name")
+        item["datacenter"] = xivapi_field_text(created_world, "DataCenter", "Name")
+        item["duty"] = xivapi_field_text(duty, "Name") or "无"
+        enriched.append(item)
+    return enriched
 
 
 def extract_party_finder_listings(payload) -> list[dict] | None:
@@ -641,6 +736,38 @@ async def get_party_finder_texts_api_v1(
             continue
         text_list.append(format_party_finder_api_entry(index, listing))
     return text_list
+
+
+async def get_party_finder_texts_api_v2(
+    data_centre: str,
+    category: str | None = None,
+    search_text: str | None = None,
+    limit: int = 10,
+) -> list[str] | None:
+    params = {
+        "page": 1,
+        "per_page": max(1, min(limit, 100)),
+        "datacenter": data_centre,
+    }
+    if category:
+        category_id = PARTY_CATEGORY_IDS.get(category)
+        if category_id is None:
+            return None
+        params["category_id"] = category_id
+    if search_text:
+        params["search"] = search_text
+
+    payload = await aiohttp_get(f"{PARTY_FINDER_API_V2_URL}?{urlencode(params)}")
+    listings = extract_party_finder_listings(payload)
+    if listings is None:
+        return None
+
+    valid_listings = [listing for listing in listings[:limit] if isinstance(listing, dict)]
+    enriched_listings = await enrich_party_finder_v2_listings(valid_listings)
+    return [
+        format_party_finder_api_entry(index, listing)
+        for index, listing in enumerate(enriched_listings, start=1)
+    ]
 
 
 async def get_party_finder_texts_html(
@@ -712,6 +839,18 @@ async def get_party_finder_texts(
     limit: int = 10,
 ) -> list[str]:
     try:
+        v2_texts = await get_party_finder_texts_api_v2(
+            data_centre,
+            category=category,
+            search_text=search_text,
+            limit=limit,
+        )
+        if v2_texts is not None:
+            return v2_texts
+    except Exception as exc:
+        logger.warning(f"招募板 API v2 获取失败，尝试 API v1: {exc}")
+
+    try:
         api_texts = await get_party_finder_texts_api_v1(
             data_centre,
             category=category,
@@ -735,7 +874,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.6.2",
+    "0.7.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
