@@ -1337,11 +1337,15 @@ async def create_market_text(query: MarketQuery) -> str:
     return "\n".join(lines)
 
 
-def parse_logs_query(query: str) -> LogsQuery:
+def parse_logs_query(query: str, default_cn_source: bool = True) -> LogsQuery:
     parts = query.split()
     boss_name = parts[0] if len(parts) > 0 else None
     job_name = parts[1] if len(parts) > 1 else None
-    cn_source = "国服" in parts
+    cn_source = default_cn_source
+    if any(part.lower() in {"国际服", "国际", "global", "intl", "international"} for part in parts):
+        cn_source = False
+    if any(part.lower() in {"国服", "国", "cn", "china"} for part in parts):
+        cn_source = True
     dps_type = "rdps" if any(part.lower() == "rdps" for part in parts) else "adps"
     day = -1
     for part in parts[2:]:
@@ -2451,6 +2455,9 @@ class TataruPlugin(Star):
     def fflogs_client_secret(self) -> str:
         return str(self.config.get("fflogs_client_secret", "") or "").strip()
 
+    def default_logs_cn_source(self) -> bool:
+        return not bool(self.config.get("use_global_fflogs", False))
+
     @filter.command("帮帮忙")
     async def help(self, event: AstrMessageEvent):
         """显示塔塔露当前已迁移的指令。"""
@@ -2636,7 +2643,7 @@ class TataruPlugin(Star):
     @filter.command("输出")
     async def logs_dps(self, event: AstrMessageEvent):
         """查询FFLogs输出分段。"""
-        logs_query = parse_logs_query(command_args(event.message_str, "输出"))
+        logs_query = parse_logs_query(command_args(event.message_str, "输出"), self.default_logs_cn_source())
         yield event.plain_result(
             await create_logs_text(
                 logs_query,

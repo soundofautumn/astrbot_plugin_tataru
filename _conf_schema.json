@@ -22,5 +22,11 @@
     "type": "string",
     "default": "",
     "hint": "可选。用于“输出”命令获取 FFLogs OAuth token。请不要公开分享该字段。"
+  },
+  "use_global_fflogs": {
+    "description": "默认使用国际服 FFLogs",
+    "type": "bool",
+    "default": false,
+    "hint": "关闭时“输出”默认查询国服 FFLogs；开启后默认查询国际服。也可以用“输出 boss 职业 国服”或“输出 boss 职业 国际服”临时指定。"
   }
 }

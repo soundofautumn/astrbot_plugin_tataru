@@ -206,6 +206,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 
 ```text
 输出 海德林 武士
+输出 海德林 武士 国际服
 输出 海德林 武士 国服
 输出 海德林 武士 国服 rdps
 输出 海德林 武士 国服 day10
@@ -215,8 +216,8 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 
 - `boss名` 支持 FFLogs metadata 补全后的中文名、英文名和别名；本地映射查不到时，会在配置 FFLogs API 凭据后动态拉取 metadata 再匹配。
 - `职业名` 支持中文名、英文名和内置别名，已包含蝰蛇剑士、绘灵法师等当前 FFLogs 职业。
-- 默认查询国际服、`adps`、最新一天。
-- 加 `国服` 查询国服 FFLogs。
+- 默认查询国服、`adps`、最新一天。
+- 加 `国际服` 查询国际服 FFLogs；加 `国服` 查询国服 FFLogs。
 - 加 `rdps` 查询 rDPS，否则默认按 aDPS。
 - 加 `dayN` 查询网页 statistics table 中第 N 天数据。
 
@@ -247,6 +248,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 | `微博 Cookie` | 空 | 可选。供 `看看微博` 请求微博移动端接口时使用，提高稳定性。 |
 | `FFLogs API Client ID` | 空 | 可选。供 `输出` 优先调用 FFLogs API。 |
 | `FFLogs API Client Secret` | 空 | 可选。供 `输出` 获取 FFLogs OAuth token。 |
+| `默认使用国际服 FFLogs` | `false` | 控制 `输出` 命令无服务器参数时默认查询国服还是国际服。 |
 
 ## 后续待迁移
 
