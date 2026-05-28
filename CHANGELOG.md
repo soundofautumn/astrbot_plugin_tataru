@@ -1,5 +1,13 @@
 # 更新日志
 
+## v0.14.0
+
+### 新增
+
+- 通过 FFLogs metadata 补全当前 boss 与职业数据，新增蝰蛇剑士、绘灵法师等职业映射。
+- `输出` 在本地 boss 映射查不到时，会使用已配置的 FFLogs API 凭据动态拉取 metadata 进行匹配。
+- README 补充 `输出` 的 FFLogs metadata 补全与动态匹配说明。
+
 ## v0.13.2
 
 ### 修复

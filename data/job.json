@@ -1,4 +1,4 @@
-﻿[
+[
   {
     "pk": 1,
     "name": "Astrologian",
@@ -166,5 +166,27 @@
     "name": "Sage",
     "cn_name": "贤者",
     "nickname": []
+  },
+  {
+    "pk": 20,
+    "name": "Viper",
+    "cn_name": "蝰蛇剑士",
+    "nickname": [
+      "蝰蛇",
+      "蛇",
+      "vpr",
+      "VPR"
+    ]
+  },
+  {
+    "pk": 21,
+    "name": "Pictomancer",
+    "cn_name": "绘灵法师",
+    "nickname": [
+      "绘灵",
+      "画家",
+      "pct",
+      "PCT"
+    ]
   }
 ]

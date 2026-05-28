@@ -213,8 +213,8 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 
 参数能力：
 
-- `boss名` 支持原 TataruBot2 内置 boss 数据里的中文名、英文名和别名。
-- `职业名` 支持中文名、英文名和原数据内置别名。
+- `boss名` 支持 FFLogs metadata 补全后的中文名、英文名和别名；本地映射查不到时，会在配置 FFLogs API 凭据后动态拉取 metadata 再匹配。
+- `职业名` 支持中文名、英文名和内置别名，已包含蝰蛇剑士、绘灵法师等当前 FFLogs 职业。
 - 默认查询国际服、`adps`、最新一天。
 - 加 `国服` 查询国服 FFLogs。
 - 加 `rdps` 查询 rDPS，否则默认按 aDPS。
@@ -227,7 +227,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 - `FFLogs API Client ID`
 - `FFLogs API Client Secret`
 
-数据源优先级：配置 FFLogs API 凭据时优先使用 FFLogs OAuth + GraphQL API；未配置、API 数据分页过多、使用 `dayN` 历史日参数或 API 失败时，回退到 FFLogs statistics table 网页解析。
+数据源优先级：配置 FFLogs API 凭据时优先使用 FFLogs OAuth + GraphQL API；本地 boss 映射查不到时会先尝试 FFLogs metadata 动态匹配；未配置、API 数据分页过多、使用 `dayN` 历史日参数或 API 失败时，回退到 FFLogs statistics table 网页解析。
 
 ### 抽卡
 

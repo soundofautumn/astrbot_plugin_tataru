@@ -62,6 +62,21 @@ WEIBO_WEB_TIMELINE_API = "https://weibo.com/ajax/statuses/mymblog"
 FFLOGS_HOSTS = {False: "https://www.fflogs.com", True: "https://cn.fflogs.com"}
 FFLOGS_PERCENTILES = [10, 25, 50, 75, 95, 99, 100]
 FFLOGS_API_MAX_PAGES = 20
+FFLOGS_METADATA_QUERY = """
+query {
+  worldData {
+    zones {
+      id
+      name
+      frozen
+      difficulties { id name }
+      partitions { id name compactName default }
+      encounters { id name }
+    }
+  }
+}
+"""
+FFLOGS_METADATA_CACHE: dict[str, dict] = {}
 DUNGEON_NOTE_URL = "https://ff14.org/duty"
 GARLAND_BASE_URL = "https://garlandtools.cn"
 PARTY_FINDER_URL = "https://xivpf.littlenightmare.top/listings"
@@ -1340,12 +1355,20 @@ def parse_logs_query(query: str) -> LogsQuery:
     return LogsQuery(boss_name, job_name, cn_source, dps_type, day)
 
 
+def normalize_logs_lookup(value: str | None) -> str:
+    if not value:
+        return ""
+    return re.sub(r"\s+", "", str(value).strip()).casefold()
+
+
 def find_logs_job(job_name: str | None) -> dict | None:
     if not job_name:
         return None
+    query = normalize_logs_lookup(job_name)
     for item in load_json_list(JOB_JSON):
         aliases = item.get("nickname", [])
-        if job_name in {item.get("name"), item.get("cn_name")} or job_name in aliases:
+        names = [normalize_logs_lookup(name) for name in [item.get("name"), item.get("cn_name"), *aliases]]
+        if query in names:
             return item
     return None
 
@@ -1353,14 +1376,14 @@ def find_logs_job(job_name: str | None) -> dict | None:
 def find_logs_boss(boss_name: str | None) -> dict | None:
     if not boss_name:
         return None
-    query = boss_name.strip().casefold()
+    query = normalize_logs_lookup(boss_name)
     if not query:
         return None
     candidates: list[tuple[dict, list[str]]] = []
     for item in load_json_list(BOSS_JSON):
         aliases = item.get("nickname", [])
         names = [
-            name.strip().casefold()
+            normalize_logs_lookup(name)
             for name in [item.get("name"), item.get("cn_name"), *aliases]
             if isinstance(name, str) and name.strip()
         ]
@@ -1414,6 +1437,129 @@ async def fflogs_graphql(host: str, token: str, query: str, variables: dict) -> 
     if isinstance(payload, dict) and payload.get("errors"):
         raise RuntimeError("FFLogs GraphQL 返回错误")
     return payload if isinstance(payload, dict) else {}
+
+
+async def fetch_fflogs_metadata(host: str, token: str) -> dict:
+    cached = FFLOGS_METADATA_CACHE.get(host)
+    if cached:
+        return cached
+    payload = await fflogs_graphql(host, token, FFLOGS_METADATA_QUERY, {})
+    metadata = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(metadata, dict):
+        raise RuntimeError("FFLogs metadata 响应为空")
+    FFLOGS_METADATA_CACHE[host] = metadata
+    return metadata
+
+
+def fflogs_zone_by_id(metadata: dict) -> dict[int, dict]:
+    zones = metadata.get("worldData", {}).get("zones", [])
+    return {int(zone["id"]): zone for zone in zones if isinstance(zone, dict) and zone.get("id") is not None}
+
+
+def fflogs_encounters_by_id(zone: dict | None) -> dict[int, dict]:
+    if not isinstance(zone, dict):
+        return {}
+    encounters = zone.get("encounters", [])
+    return {
+        int(encounter["id"]): encounter
+        for encounter in encounters
+        if isinstance(encounter, dict) and encounter.get("id") is not None
+    }
+
+
+def fflogs_metadata_regions(zone: dict | None) -> list[str]:
+    if not isinstance(zone, dict):
+        return []
+    partitions = [part for part in zone.get("partitions", []) if isinstance(part, dict) and part.get("id") is not None]
+    selected = [
+        part
+        for part in partitions
+        if isinstance(part.get("name"), str)
+        and (
+            ("Standard" in part["name"] and "Non-Standard" not in part["name"])
+            or ("标准" in part["name"] and "非标准" not in part["name"])
+        )
+    ]
+    if not selected:
+        selected = [part for part in partitions if part.get("default")]
+    if not selected:
+        selected = partitions
+    if not selected:
+        return ["-1###1"]
+    return [f"{part.get('name') or part['id']}###{int(part['id'])}" for part in selected]
+
+
+def fflogs_metadata_difficulty(zone: dict | None) -> int:
+    if not isinstance(zone, dict):
+        return 100
+    ids = [
+        int(item["id"])
+        for item in zone.get("difficulties", [])
+        if isinstance(item, dict) and item.get("id") is not None
+    ]
+    return max(ids) if ids else 100
+
+
+def build_fflogs_metadata_boss(en_zone: dict, cn_zone: dict | None, encounter_id: int) -> dict | None:
+    en_encounter = fflogs_encounters_by_id(en_zone).get(encounter_id)
+    if not en_encounter:
+        return None
+    cn_encounter = fflogs_encounters_by_id(cn_zone).get(encounter_id) if cn_zone else None
+    en_name = en_encounter.get("name") or ""
+    cn_name = cn_encounter.get("name") if isinstance(cn_encounter, dict) else None
+    return {
+        "pk": encounter_id,
+        "quest": int(en_zone["id"]),
+        "zone_name": en_zone.get("name") or "",
+        "cn_zone_name": cn_zone.get("name") if isinstance(cn_zone, dict) else en_zone.get("name") or "",
+        "name": en_name,
+        "cn_name": cn_name or en_name,
+        "nickname": [],
+        "patch": 0,
+        "savage": fflogs_metadata_difficulty(en_zone),
+        "region": fflogs_metadata_regions(en_zone),
+        "cn_region": fflogs_metadata_regions(cn_zone) if cn_zone else fflogs_metadata_regions(en_zone),
+    }
+
+
+def fflogs_metadata_boss_names(entry: dict, zone: dict | None = None) -> list[str]:
+    names = [entry.get("name"), entry.get("cn_name"), *entry.get("nickname", [])]
+    if isinstance(zone, dict) and len(zone.get("encounters", []) or []) == 1:
+        names.append(zone.get("name"))
+    return [normalize_logs_lookup(name) for name in names if isinstance(name, str) and name.strip()]
+
+
+async def find_logs_boss_metadata(boss_name: str, client_id: str, client_secret: str) -> dict | None:
+    if not client_id or not client_secret:
+        return None
+    query = normalize_logs_lookup(boss_name)
+    if not query:
+        return None
+
+    metadata: dict[bool, dict] = {}
+    for cn_source, host in FFLOGS_HOSTS.items():
+        token = await get_fflogs_token(host, client_id, client_secret)
+        metadata[cn_source] = await fetch_fflogs_metadata(host, token)
+
+    en_zones = fflogs_zone_by_id(metadata[False])
+    cn_zones = fflogs_zone_by_id(metadata[True])
+    candidates: list[tuple[dict, list[str]]] = []
+    for zone_id, en_zone in en_zones.items():
+        cn_zone = cn_zones.get(zone_id)
+        encounter_ids = set(fflogs_encounters_by_id(en_zone))
+        encounter_ids.update(fflogs_encounters_by_id(cn_zone))
+        for encounter_id in encounter_ids:
+            entry = build_fflogs_metadata_boss(en_zone, cn_zone, encounter_id)
+            if not entry:
+                continue
+            names = fflogs_metadata_boss_names(entry, en_zone)
+            candidates.append((entry, names))
+            if query in names:
+                return entry
+    for entry, names in candidates:
+        if any(query in name or name in query for name in names):
+            return entry
+    return None
 
 
 async def fetch_fflogs_rankings_api(
@@ -1607,6 +1753,11 @@ async def create_logs_text(query: LogsQuery, client_id: str, client_secret: str)
     if not job:
         return "检查职业名称是否正确"
     boss = find_logs_boss(query.boss_name)
+    if not boss:
+        try:
+            boss = await find_logs_boss_metadata(query.boss_name, client_id, client_secret)
+        except Exception as exc:
+            logger.info(f"FFLogs metadata 动态查找失败: {exc}")
     if not boss:
         return "检查boss名称是否正确"
 
@@ -2270,7 +2421,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.13.2",
+    "0.14.0",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
