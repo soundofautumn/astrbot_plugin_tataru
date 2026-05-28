@@ -1345,7 +1345,12 @@ def parse_logs_query(query: str, default_cn_source: bool = True) -> LogsQuery:
         cn_source = False
     if any(part.lower() in {"国服", "国", "cn", "china"} for part in parts):
         cn_source = True
-    dps_type = "rdps" if any(part.lower() == "rdps" for part in parts) else "adps"
+    dps_type = "rdps"
+    for part in parts:
+        lower = part.lower()
+        if lower in {"rdps", "adps", "pdps", "ndps", "cdps"}:
+            dps_type = lower
+            break
     day = -1
     for part in parts[2:]:
         lower = part.lower()
@@ -1400,8 +1405,26 @@ def find_logs_boss(boss_name: str | None) -> dict | None:
 
 
 def fflogs_region_entries(boss: dict, cn_source: bool) -> list[str]:
-    regions = boss.get("cn_region" if cn_source else "region", [])
-    return [region for region in regions if isinstance(region, str) and "###" in region]
+    regions = [
+        region
+        for region in boss.get("cn_region" if cn_source else "region", [])
+        if isinstance(region, str) and "###" in region
+    ]
+    selected = []
+    index = 0
+    while index < len(regions):
+        label = regions[index].split("###", 1)[0]
+        group = []
+        while index < len(regions) and regions[index].split("###", 1)[0] == label:
+            group.append(regions[index])
+            index += 1
+        if len(group) >= 3:
+            selected.append(group[1] if cn_source else group[0])
+        elif len(group) == 2:
+            selected.append(group[1] if cn_source else group[0])
+        elif group:
+            selected.append(group[0])
+    return selected
 
 
 async def get_fflogs_token(host: str, client_id: str, client_secret: str) -> str:
@@ -1589,11 +1612,14 @@ async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) ->
     search_range = [regions[-index - 1] for index in range(len(regions))]
     for region_entry in search_range:
         region_info, region_id = region_entry.split("###", 1)
+        params = {"keystone": "15", "dataset": "100"}
+        if query.dps_type != "rdps":
+            params["dpstype"] = query.dps_type
         url = (
             f"{host}/zone/statistics/table/"
             f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/8/{int(region_id)}/100/1000/7/"
             f"{boss['patch']}/Global/{job['name']}/All/0/normalized/single/0/-1/?"
-            f"keystone=15&dpstype={query.dps_type}"
+            f"{urlencode(params)}"
         )
         page = await aiohttp_get(url, res_type="text", headers={"Referer": host})
         if isinstance(page, str) and "data.push" in page:

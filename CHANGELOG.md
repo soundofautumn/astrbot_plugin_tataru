@@ -1,5 +1,13 @@
 # 更新日志
 
+## v0.14.3
+
+### 修复
+
+- `输出` 默认 DPS 类型改为 rDPS，匹配 FFLogs statistics 默认口径。
+- `输出` 查询 rDPS 时不再向 FFLogs statistics table 拼接 `dpstype` 参数；仅在显式指定 `adps`、`pdps`、`ndps`、`cdps` 时传递该参数。
+- 修正 FFLogs 重复分区选择：国际服选择每组第 1 个分区，国服选择每组第 2 个分区，避免误用韩服分区。
+
 ## v0.14.2
 
 ### 修复

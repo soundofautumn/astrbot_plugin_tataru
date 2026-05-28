@@ -208,7 +208,8 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 输出 海德林 武士
 输出 海德林 武士 国际服
 输出 海德林 武士 国服
-输出 海德林 武士 国服 rdps
+输出 海德林 武士 国服 adps
+输出 海德林 武士 国服 pdps
 输出 海德林 武士 国服 day10
 ```
 
@@ -216,9 +217,9 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 
 - `boss名` 支持 FFLogs metadata 补全后的中文名、英文名和别名；本地映射查不到时，会在配置 FFLogs API 凭据后动态拉取 metadata 再匹配。
 - `职业名` 支持中文名、英文名和内置别名，已包含蝰蛇剑士、绘灵法师等当前 FFLogs 职业。
-- 默认查询国服、`adps`、最新一天。
+- 默认查询国服、`rdps`、最新一天。
 - 加 `国际服` 查询国际服 FFLogs；加 `国服` 查询国服 FFLogs。
-- 加 `rdps` 查询 rDPS，否则默认按 aDPS。
+- 支持显式指定 `rdps`、`adps`、`pdps`、`ndps`、`cdps`；默认 `rdps` 不向 FFLogs statistics table 传 `dpstype` 参数。
 - 加 `dayN` 查询网页 statistics table 中第 N 天数据。
 
 返回文本内容包含：服务器、DPS 类型、数据源、版本分区、副本、boss、职业、天数，以及 10%、25%、50%、75%、95%、99%、100% 分位。
