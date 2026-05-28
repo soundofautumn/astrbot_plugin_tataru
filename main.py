@@ -384,8 +384,6 @@ class LogsQuery:
     cn_source: bool
     dps_type: str
     day: int
-    dataset: int
-    bracket: int
 
 
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
@@ -1354,8 +1352,6 @@ def parse_logs_query(query: str, default_cn_source: bool = True) -> LogsQuery:
             dps_type = lower
             break
     day = -1
-    dataset = 99
-    bracket = 6
     for part in parts[2:]:
         lower = part.lower()
         if lower.startswith("day"):
@@ -1364,15 +1360,7 @@ def parse_logs_query(query: str, default_cn_source: bool = True) -> LogsQuery:
             except ValueError:
                 day = -2
             continue
-        dataset_match = re.fullmatch(r"dataset[=\s]?(\d+)", lower)
-        if dataset_match:
-            dataset = int(dataset_match.group(1))
-            continue
-        bracket_match = re.fullmatch(r"bracket[=\s]?(\d+)", lower)
-        if bracket_match:
-            bracket = int(bracket_match.group(1))
-            continue
-    return LogsQuery(boss_name, job_name, cn_source, dps_type, day, dataset, bracket)
+    return LogsQuery(boss_name, job_name, cn_source, dps_type, day)
 
 
 def normalize_logs_lookup(value: str | None) -> str:
@@ -1624,15 +1612,16 @@ async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) ->
     search_range = [regions[-index - 1] for index in range(len(regions))]
     for region_entry in search_range:
         region_info, region_id = region_entry.split("###", 1)
-        params = {"keystone": "15", "dataset": str(query.dataset)}
+        params = {"keystone": "15"}
         if query.dps_type != "rdps":
             params["dpstype"] = query.dps_type
         url = (
             f"{host}/zone/statistics/table/"
-            f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/{query.bracket}/{int(region_id)}/100/1000/7/"
+            f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/6/{int(region_id)}/100/1000/7/"
             f"{boss['patch']}/Global/{job['name']}/All/0/amount/single/0/-1/?"
             f"{urlencode(params)}"
         )
+        logger.info(f"FFLogs statistics table URL: {url}")
         page = await aiohttp_get(url, res_type="text", headers={"Referer": host})
         if isinstance(page, str) and "data.push" in page:
             return page, region_info
