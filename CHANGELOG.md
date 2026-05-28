@@ -1,5 +1,12 @@
 # 更新日志
 
+## v0.14.2
+
+### 修复
+
+- `输出` 分位数据改为直接使用对应站点的 FFLogs statistics table，避免 FFLogs GraphQL `characterRankings` 在国服/国际服之间返回相同排行榜数据。
+- FFLogs API 仍用于本地 boss 映射查不到时的 metadata 动态匹配，不再作为最终分位数据源。
+
 ## v0.14.1
 
 ### 优化

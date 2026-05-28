@@ -228,7 +228,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 - `FFLogs API Client ID`
 - `FFLogs API Client Secret`
 
-数据源优先级：配置 FFLogs API 凭据时优先使用 FFLogs OAuth + GraphQL API；本地 boss 映射查不到时会先尝试 FFLogs metadata 动态匹配；未配置、API 数据分页过多、使用 `dayN` 历史日参数或 API 失败时，回退到 FFLogs statistics table 网页解析。
+数据源优先级：分位数据使用对应站点的 FFLogs statistics table 网页解析，以保证国服 `cn.fflogs.com` 和国际服 `www.fflogs.com` 数据口径分开；配置 FFLogs API 凭据后，本地 boss 映射查不到时会使用 FFLogs metadata 动态匹配 boss。
 
 ### 抽卡
 
@@ -246,7 +246,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 | --- | --- | --- |
 | `默认使用国际服日历` | `false` | 控制 `日历` 命令无参数时默认查询国服还是国际服。 |
 | `微博 Cookie` | 空 | 可选。供 `看看微博` 请求微博移动端接口时使用，提高稳定性。 |
-| `FFLogs API Client ID` | 空 | 可选。供 `输出` 优先调用 FFLogs API。 |
+| `FFLogs API Client ID` | 空 | 可选。供 `输出` 在本地 boss 映射查不到时动态查询 FFLogs metadata。 |
 | `FFLogs API Client Secret` | 空 | 可选。供 `输出` 获取 FFLogs OAuth token。 |
 | `默认使用国际服 FFLogs` | `false` | 控制 `输出` 命令无服务器参数时默认查询国服还是国际服。 |
 
@@ -270,7 +270,8 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 - [腾讯文档](https://docs.qq.com/)：暖暖功能兜底链接。
 - [Bilibili](https://www.bilibili.com/)：暖暖视频来源之一。
 - [微博](https://weibo.com/1797798792)：`看看微博` 的 FF14 官方微博数据源。
-- [FFLogs API](https://cn.fflogs.com/api/docs)：`输出` 的优先数据源。
+- [FFLogs statistics](https://cn.fflogs.com/)：`输出` 的分位数据源。
+- [FFLogs API](https://cn.fflogs.com/api/docs)：`输出` 动态匹配 boss metadata 的数据源。
 - [fflogsapi](https://fflogsapi.readthedocs.io/en/latest/index.html)：FFLogs API 调用方式参考。
 - [Pillow](https://python-pillow.org/)：文本转图片渲染。
 - [icalendar](https://icalendar.readthedocs.io/)：ICS 日历解析。

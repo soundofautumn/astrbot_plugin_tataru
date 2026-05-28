@@ -61,7 +61,6 @@ WEIBO_WEB_BASE = "https://weibo.com"
 WEIBO_WEB_TIMELINE_API = "https://weibo.com/ajax/statuses/mymblog"
 FFLOGS_HOSTS = {False: "https://www.fflogs.com", True: "https://cn.fflogs.com"}
 FFLOGS_PERCENTILES = [10, 25, 50, 75, 95, 99, 100]
-FFLOGS_API_MAX_PAGES = 20
 FFLOGS_METADATA_QUERY = """
 query {
   worldData {
@@ -1405,10 +1404,6 @@ def fflogs_region_entries(boss: dict, cn_source: bool) -> list[str]:
     return [region for region in regions if isinstance(region, str) and "###" in region]
 
 
-def fflogs_metric_for_api(dps_type: str) -> str:
-    return "rdps" if dps_type == "rdps" else "dps"
-
-
 async def get_fflogs_token(host: str, client_id: str, client_secret: str) -> str:
     timeout = aiohttp.ClientTimeout(total=20)
     auth = aiohttp.BasicAuth(client_id, client_secret)
@@ -1566,75 +1561,6 @@ async def find_logs_boss_metadata(boss_name: str, client_id: str, client_secret:
     return None
 
 
-async def fetch_fflogs_rankings_api(
-    host: str,
-    token: str,
-    boss: dict,
-    job: dict,
-    partition_id: int,
-    dps_type: str,
-) -> tuple[list[float], int, bool]:
-    query = """
-    query($id: Int!, $difficulty: Int!, $partition: Int!, $metric: CharacterRankingMetricType!, $spec: String!, $page: Int!) {
-      worldData {
-        encounter(id: $id) {
-          characterRankings(difficulty: $difficulty, partition: $partition, metric: $metric, specName: $spec, page: $page)
-        }
-      }
-    }
-    """
-    amounts = []
-    count = 0
-    has_more = True
-    page = 1
-    while has_more and page <= FFLOGS_API_MAX_PAGES:
-        payload = await fflogs_graphql(
-            host,
-            token,
-            query,
-            {
-                "id": int(boss["pk"]),
-                "difficulty": int(boss["savage"]),
-                "partition": int(partition_id),
-                "metric": fflogs_metric_for_api(dps_type),
-                "spec": job["name"],
-                "page": page,
-            },
-        )
-        ranking = (
-            payload.get("data", {})
-            .get("worldData", {})
-            .get("encounter", {})
-            .get("characterRankings", {})
-        )
-        if not isinstance(ranking, dict):
-            break
-        count = int(ranking.get("count") or count or 0)
-        for item in ranking.get("rankings", []):
-            if not isinstance(item, dict):
-                continue
-            amount = item.get("amount")
-            if amount is None:
-                metric_key = "rDPS" if dps_type == "rdps" else "aDPS"
-                amount = item.get(metric_key)
-            if amount is not None:
-                amounts.append(float(amount))
-        has_more = bool(ranking.get("hasMorePages"))
-        page += 1
-    return amounts, count, has_more
-
-
-def percentile_from_rankings(amounts: list[float], percentile: int) -> float:
-    if not amounts:
-        return 0.0
-    amounts = sorted(amounts, reverse=True)
-    if percentile == 100:
-        return amounts[0]
-    rank = max(1, int((len(amounts) * (100 - percentile) + 99) // 100))
-    index = min(len(amounts) - 1, rank - 1)
-    return amounts[index]
-
-
 def normalize_fflogs_result(
     stat: dict,
     query: LogsQuery,
@@ -1653,36 +1579,6 @@ def normalize_fflogs_result(
     ]
     lines.extend(f"{percentile}%: {stat[str(percentile)]:.2f}" for percentile in FFLOGS_PERCENTILES)
     return "\n".join(lines)
-
-
-async def create_logs_text_api(query: LogsQuery, boss: dict, job: dict, client_id: str, client_secret: str) -> str:
-    if query.day != -1:
-        raise RuntimeError("FFLogs API 不提供旧版 dayN 分位曲线，使用网页兜底")
-    if not client_id or not client_secret:
-        raise RuntimeError("未配置 FFLogs API 凭据")
-
-    regions = fflogs_region_entries(boss, query.cn_source)
-    if not regions:
-        raise RuntimeError("没有可用分区")
-    region_info, partition_text = regions[-1].split("###", 1)
-    host = FFLOGS_HOSTS[query.cn_source]
-    token = await get_fflogs_token(host, client_id, client_secret)
-    amounts, count, has_more = await fetch_fflogs_rankings_api(
-        host,
-        token,
-        boss,
-        job,
-        int(partition_text),
-        query.dps_type,
-    )
-    if not amounts:
-        raise RuntimeError("FFLogs API 未返回排行榜")
-    if has_more or (count and len(amounts) < count):
-        raise RuntimeError("FFLogs API 排行榜分页过多，使用网页兜底以保持分位准确")
-    stat = {"day": "最新"}
-    for percentile in FFLOGS_PERCENTILES:
-        stat[str(percentile)] = percentile_from_rankings(amounts, percentile)
-    return normalize_fflogs_result(stat, query, boss, job, region_info, "FFLogs API")
 
 
 async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) -> tuple[str, str] | None:
@@ -1745,7 +1641,7 @@ async def create_logs_text_crawl(query: LogsQuery, boss: dict, job: dict) -> str
     if not rows:
         return "No data found"
     row = rows[-1] if query.day == -1 or query.day >= len(rows) else rows[query.day]
-    return normalize_fflogs_result(row, query, boss, job, region_info, "网页兜底")
+    return normalize_fflogs_result(row, query, boss, job, region_info, "FFLogs statistics table")
 
 
 async def create_logs_text(query: LogsQuery, client_id: str, client_secret: str) -> str:
@@ -1765,10 +1661,6 @@ async def create_logs_text(query: LogsQuery, client_id: str, client_secret: str)
     if not boss:
         return "检查boss名称是否正确"
 
-    try:
-        return await create_logs_text_api(query, boss, job, client_id, client_secret)
-    except Exception as exc:
-        logger.info(f"FFLogs API 查询失败，尝试网页兜底: {exc}")
     return await create_logs_text_crawl(query, boss, job)
 
 

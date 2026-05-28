@@ -15,7 +15,7 @@
     "description": "FFLogs API Client ID",
     "type": "string",
     "default": "",
-    "hint": "可选。用于“输出”命令优先调用 FFLogs v2 API；不填写时会直接使用网页兜底。"
+    "hint": "可选。用于“输出”命令在本地 boss 映射查不到时动态查询 FFLogs metadata。"
   },
   "fflogs_client_secret": {
     "description": "FFLogs API Client Secret",
