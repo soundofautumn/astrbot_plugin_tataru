@@ -1662,7 +1662,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.11.0",
+    "0.11.1",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -1822,13 +1822,21 @@ class TataruPlugin(Star):
         text_to_image(market_text, image_path, width_now=42)
         yield event.image_result(str(image_path))
 
-    @filter.command("房屋")
     @filter.command("房子")
     async def house(self, event: AstrMessageEvent):
         """查询指定服务器空房。"""
-        house_info = command_args(event.message_str, "房子")
-        if house_info == event.message_str:
-            house_info = command_args(event.message_str, "房屋")
+        async for result in self.create_house_result(event, "房子"):
+            yield result
+
+    @filter.command("房屋")
+    async def house_alias(self, event: AstrMessageEvent):
+        """查询指定服务器空房。"""
+        async for result in self.create_house_result(event, "房屋"):
+            yield result
+
+    async def create_house_result(self, event: AstrMessageEvent, command: str):
+        """查询指定服务器空房。"""
+        house_info = command_args(event.message_str, command)
         house_query = parse_house_query(house_info)
         try:
             house_text = await create_house_text(house_query)
