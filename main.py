@@ -1638,12 +1638,41 @@ def fflogs_decimal_candidates(value: str) -> list[float]:
 
 
 def choose_fflogs_percentile_values(values: list[float]) -> list[float] | None:
+    blocks = find_fflogs_percentile_value_blocks(values, limit=1)
+    return blocks[0] if blocks else None
+
+
+def find_fflogs_percentile_value_blocks(values: list[float], limit: int = 3) -> list[list[float]]:
     expected_count = len(FFLOGS_PERCENTILES)
+    blocks = []
     for index in range(0, len(values) - expected_count + 1):
         block = values[index : index + expected_count]
-        if block[0] > block[1] and all(block[item] >= block[item + 1] for item in range(expected_count - 1)):
-            return block
-    return None
+        if (
+            block[0] > block[1]
+            and all(block[item] >= block[item + 1] for item in range(expected_count - 1))
+            and block[-1] >= block[0] * 0.35
+        ):
+            blocks.append(block)
+            if len(blocks) >= limit:
+                break
+    return blocks
+
+
+def stat_from_fflogs_percentile_values(values: list[float], text: str) -> dict:
+    stat = {}
+    for percentile, value in zip(sorted(FFLOGS_PERCENTILES, reverse=True), values):
+        stat[str(percentile)] = value
+    date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+    if date_match:
+        stat["date_range"] = date_match.group(0)
+    return stat
+
+
+def parse_logs_statistics_global_value_block(text: str) -> dict | None:
+    values = choose_fflogs_percentile_values(fflogs_decimal_candidates(text))
+    if not values:
+        return None
+    return stat_from_fflogs_percentile_values(values, text)
 
 
 def parse_logs_statistics_chart_value_block(text: str, job: dict) -> dict | None:
@@ -1675,20 +1704,11 @@ def parse_logs_statistics_chart_value_block(text: str, job: dict) -> dict | None
     values = choose_fflogs_percentile_values(fflogs_decimal_candidates(text[start:end]))
     if not values:
         return None
-    stat = {}
-    for percentile, value in zip(sorted(FFLOGS_PERCENTILES, reverse=True), values):
-        stat[str(percentile)] = value
-    date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
-    if date_match:
-        stat["date_range"] = date_match.group(0)
-    return stat
+    return stat_from_fflogs_percentile_values(values, text)
 
 
 def parse_logs_statistics_chart_values(page: str, job: dict) -> dict | None:
     text = decode_fflogs_page_text(page)
-    block_stat = parse_logs_statistics_chart_value_block(text, job)
-    if block_stat:
-        return block_stat
     labels = {
         100: [f"{job.get('cn_name', '')} 最高", f"{job.get('name', '')} Max", "最高", "Max"],
         99: ["第99百分位数", "99th percentile", "99th Percentile"],
@@ -1712,7 +1732,7 @@ def parse_logs_statistics_chart_values(page: str, job: dict) -> dict | None:
             if str(percentile) in stat:
                 break
         if str(percentile) not in stat:
-            return parse_logs_statistics_chart_value_block(text, job)
+            return None
     date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
     if date_match:
         stat["date_range"] = date_match.group(0)
@@ -1816,6 +1836,8 @@ def log_fflogs_statistics_page_diagnostics(page: str, job: dict) -> None:
         index = decoded.rfind(str(name))
         if index >= 0:
             job_decimal_candidates.extend(fflogs_decimal_candidates(decoded[index : index + 1200]))
+    global_decimal_candidates = fflogs_decimal_candidates(decoded)
+    global_blocks = find_fflogs_percentile_value_blocks(global_decimal_candidates)
     markers = {
         "cn_job": bool(job.get("cn_name") and job["cn_name"] in decoded),
         "en_job": bool(job.get("name") and job["name"] in decoded),
@@ -1832,6 +1854,8 @@ def log_fflogs_statistics_page_diagnostics(page: str, job: dict) -> None:
     logger.info(f"FFLogs statistics page diagnostics: len={len(page)} markers={markers}")
     logger.info(f"FFLogs statistics primary values sample: {primary_values[:8]}")
     logger.info(f"FFLogs statistics job-window decimals sample: {job_decimal_candidates[:12]}")
+    logger.info(f"FFLogs statistics global decimals sample: {global_decimal_candidates[:30]}")
+    logger.info(f"FFLogs statistics descending blocks sample: {global_blocks}")
     logger.info(f"FFLogs statistics main-table-number td samples: {fflogs_debug_td_samples(decoded, r'main-table-number')}")
     logger.info(f"FFLogs statistics primary td samples: {fflogs_debug_td_samples(decoded, r'\\bprimary\\b')}")
 
@@ -1858,9 +1882,20 @@ async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict)
         if not isinstance(page, str):
             return None
         if index == 0:
-            chart_stat = parse_logs_statistics_chart_values(page, job)
+            decoded_page = decode_fflogs_page_text(page)
+            chart_stat = parse_logs_statistics_chart_value_block(decoded_page, job)
             if chart_stat:
                 logger.info("FFLogs statistics chart values matched")
+                version_label = parse_logs_statistics_version_label(page)
+                return chart_stat, version_label or "网页默认"
+            chart_stat = parse_logs_statistics_global_value_block(decoded_page)
+            if chart_stat:
+                logger.info("FFLogs statistics global value block matched")
+                version_label = parse_logs_statistics_version_label(page)
+                return chart_stat, version_label or "网页默认"
+            chart_stat = parse_logs_statistics_chart_values(page, job)
+            if chart_stat:
+                logger.info("FFLogs statistics chart label values matched")
                 version_label = parse_logs_statistics_version_label(page)
                 return chart_stat, version_label or "网页默认"
         parsed = parse_logs_statistics_primary_cell(page)
