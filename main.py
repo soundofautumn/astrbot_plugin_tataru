@@ -408,17 +408,18 @@ LOGS_SERVER_TOKENS = {
 LOGS_DPS_TYPES = {"rdps", "adps", "pdps", "ndps", "cdps"}
 FFLOGS_GLOBAL_CHARACTER_REGIONS = ["JP", "NA", "EU", "OC"]
 FFLOGS_CHARACTER_ZONE_REQUESTS = [
-    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101},
-    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101},
-    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101},
-    {"key": "pandaemonium_asphodelos", "zone_id": 44, "difficulty": 101},
-    {"key": "pandaemonium_abyssos", "zone_id": 49, "difficulty": 101},
-    {"key": "pandaemonium_anabaseios", "zone_id": 54, "difficulty": 101},
-    {"key": "ultimate_future", "zone_id": 65, "difficulty": None},
-    {"key": "ultimate_dawntrail_old", "zone_id": 59, "difficulty": None},
-    {"key": "ultimate_endwalker_top", "zone_id": 53, "difficulty": None},
-    {"key": "ultimate_endwalker_dsr", "zone_id": 45, "difficulty": None},
-    {"key": "ultimate_legacy", "zone_id": 43, "difficulty": None},
+    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101, "type": "savage", "version": "7.0"},
+    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101, "type": "savage", "version": "7.0"},
+    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101, "type": "savage", "version": "7.0"},
+    {"key": "ultimate_70_future", "zone_id": 65, "difficulty": None, "type": "ultimate", "version": "7.0", "order": 70},
+    {"key": "ultimate_70_legacy", "zone_id": 59, "difficulty": None, "type": "ultimate", "version": "7.0", "order": 70},
+    {"key": "ultimate_60_top", "zone_id": 53, "difficulty": None, "type": "ultimate", "version": "6.0", "order": 60},
+    {"key": "ultimate_60_dsr", "zone_id": 45, "difficulty": None, "type": "ultimate", "version": "6.0", "order": 60},
+    {"key": "ultimate_60_legacy", "zone_id": 43, "difficulty": None, "type": "ultimate", "version": "6.0", "order": 60},
+    {"key": "ultimate_50_tea", "zone_id": 32, "difficulty": None, "type": "ultimate", "version": "5.0", "order": 50},
+    {"key": "ultimate_50_legacy", "zone_id": 30, "difficulty": None, "type": "ultimate", "version": "5.0", "order": 50},
+    {"key": "ultimate_40_uwu", "zone_id": 23, "difficulty": None, "type": "ultimate", "version": "4.0", "order": 40},
+    {"key": "ultimate_40_ucob", "zone_id": 19, "difficulty": None, "type": "ultimate", "version": "4.0", "order": 40},
 ]
 FFLOGS_CHARACTER_SHORT_LABELS = {
     93: "M1S",
@@ -456,23 +457,24 @@ FFLOGS_CHARACTER_SHORT_LABELS = {
     1065: "绝龙诗",
     1075: "绝亚",
     1062: "绝亚",
+    1050: "绝亚",
     1074: "绝神兵",
     1061: "绝神兵",
+    1048: "绝神兵",
+    1042: "绝神兵",
     1073: "绝巴哈",
     1060: "绝巴哈",
+    1047: "绝巴哈",
+    1039: "绝巴哈",
 }
 FFLOGS_CHARACTER_GROUPS = [
     (
         "绝境战",
-        [1079, 1077, 1068, 1076, 1065, 1075, 1062, 1074, 1061, 1073, 1060],
+        [1079, 1077, 1076, 1075, 1074, 1073],
     ),
     (
         "7.0 阿卡狄亚零式",
         [105, 104, 103, 102, 101, 100, 99, 98, 97, 96, 95, 94, 93],
-    ),
-    (
-        "6.0 万魔殿零式",
-        [92, 91, 90, 89, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78],
     ),
 ]
 LOGS_BOSS_PHASE_GROUPS = [
@@ -2428,6 +2430,13 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
             current = records.get(label)
             current_percent = current.get("percent") if current else None
             if current:
+                if request.get("type") == "ultimate":
+                    request_order = int(request.get("order", 0))
+                    current_order = int(current.get("version_order", 0))
+                    if request_order < current_order:
+                        continue
+                    if request_order > current_order:
+                        current_percent = None
                 if percent is None and current_percent is not None:
                     continue
                 if percent is not None and current_percent is not None and percent <= current_percent:
@@ -2435,6 +2444,9 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
             records[label] = {
                 "encounter_id": encounter_id,
                 "label": label,
+                "category": request.get("type"),
+                "version": request.get("version"),
+                "version_order": request.get("order", 0),
                 "percent": percent,
                 "amount": amount,
                 "rank": rank,
@@ -2452,6 +2464,8 @@ def format_fflogs_character_record(record: dict) -> str:
     percent = record.get("percent")
     percent_text = f"{percent:.1f}%" if isinstance(percent, (int, float)) else "--"
     details = [str(record.get("job") or "未知职业")]
+    if record.get("category") == "ultimate" and record.get("version"):
+        details.append(f"{record['version']}记录")
     amount = record.get("amount")
     if isinstance(amount, (int, float)) and amount > 0:
         details.append(f"{amount:,.0f} rDPS")
@@ -3182,7 +3196,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.21",
+    "0.14.22",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):

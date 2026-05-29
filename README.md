@@ -249,14 +249,16 @@ logs Character Name Tonberry 国际服
 
 查询角色公开 FFLogs 战绩。角色名支持空格，服务器名放在最后；未指定国服/国际服时跟随 `默认使用国际服 FFLogs` 配置，若服务器无法识别会尝试备用站点。
 
-返回文本内容包含：角色名、服务器、数据源、FFLogs 角色页链接，以及绝境战、7.0 阿卡狄亚零式、6.0 万魔殿零式中已有记录的百分位、职业、rDPS 和排名信息。
+返回文本内容包含：角色名、服务器、数据源、FFLogs 角色页链接，以及绝境战、7.0 阿卡狄亚零式中已有记录的百分位、职业、rDPS 和排名信息。
+
+零式只返回当前最新版本的阿卡狄亚零式。绝境战会查询 4.0-7.0 的相关 FFLogs 分区，同一绝本只保留最后一次有公开记录的版本，并在结果中标注 `4.0记录`、`6.0记录`、`7.0记录` 等来源。
 
 配置项：
 
 - `FFLogs API Client ID`
 - `FFLogs API Client Secret`
 
-数据源：FFLogs v2 GraphQL Character API。当前实现按 `zoneRankings` 拉取常用零式/绝本分区数据。
+数据源：FFLogs v2 GraphQL Character API。当前实现按 `zoneRankings` 拉取最新零式和 4.0-7.0 绝本分区数据。
 
 ### 抽卡
 
