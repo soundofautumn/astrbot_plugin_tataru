@@ -1717,6 +1717,21 @@ def parse_logs_statistics_version_label(page: str) -> str | None:
     return matches[-1] if matches else None
 
 
+def log_fflogs_statistics_page_diagnostics(page: str, job: dict) -> None:
+    decoded = decode_fflogs_page_text(page)
+    text = fflogs_text_from_html(page)
+    markers = {
+        "cn_job": bool(job.get("cn_name") and job["cn_name"] in decoded),
+        "en_job": bool(job.get("name") and job["name"] in decoded),
+        "date": bool(re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)),
+        "chart": "第99百分位数" in decoded or "99th percentile" in decoded or "99th Percentile" in decoded,
+        "table_rows": bool(re.search(r"<tr\b", decoded, flags=re.IGNORECASE)),
+        "data_push": "data.push" in decoded,
+        "cloudflare": "Just a moment" in decoded or "Enable JavaScript and cookies" in decoded,
+    }
+    logger.info(f"FFLogs statistics page diagnostics: len={len(page)} markers={markers}")
+
+
 async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict) -> tuple[dict, str] | None:
     host = FFLOGS_HOSTS[query.cn_source]
     stat = {}
@@ -1746,6 +1761,7 @@ async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict)
                 return chart_stat, version_label or "网页默认"
         parsed = parse_logs_statistics_summary_row(page, job)
         if not parsed:
+            log_fflogs_statistics_page_diagnostics(page, job)
             return None
         stat[str(percentile)] = parsed["dps"]
         date_range = date_range or parsed.get("date_range")
