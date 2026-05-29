@@ -1593,16 +1593,116 @@ def normalize_fflogs_result(
     region_info: str,
     source_label: str,
 ) -> str:
+    period_label = "日期范围" if stat.get("date_range") else "天数"
+    period_value = stat.get("date_range", stat.get("day", "最新"))
     lines = [
         f"服务器: {'国服' if query.cn_source else '国际服'}  dps类型: {query.dps_type}",
         f"数据源: {source_label}",
         f"版本: {region_info}",
         f"副本: {boss['cn_zone_name']}",
         f"boss: {boss['cn_name']}",
-        f"职业: {job['cn_name']}  天数: {stat.get('day', '最新')}",
+        f"职业: {job['cn_name']}  {period_label}: {period_value}",
     ]
+    if stat.get("parses"):
+        lines.append(f"记录数: {stat['parses']}")
     lines.extend(f"{percentile}%: {stat[str(percentile)]:.2f}" for percentile in FFLOGS_PERCENTILES)
     return "\n".join(lines)
+
+
+def parse_fflogs_number(value: str) -> float:
+    return float(value.replace(",", ""))
+
+
+def fflogs_text_from_html(value: str) -> str:
+    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", value, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<style\b[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
+    job_names = [name for name in [job.get("cn_name"), job.get("name")] if isinstance(name, str) and name]
+    rows = re.findall(r"<tr\b[^>]*>.*?</tr>", page, flags=re.IGNORECASE | re.DOTALL)
+    candidates = rows if rows else [page]
+    for row in candidates:
+        text = fflogs_text_from_html(row)
+        if not any(name in text for name in job_names):
+            continue
+        date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+        number_text = text[date_match.end():] if date_match else text
+        numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
+        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number]
+        if not dps_candidates:
+            continue
+        result = {
+            "dps": dps_candidates[0],
+            "date_range": date_match.group(0) if date_match else None,
+        }
+        if len(dps_candidates) > 1:
+            result["max"] = dps_candidates[1]
+        parse_candidates = [int(number.replace(",", "")) for number in numbers if "." not in number]
+        if parse_candidates:
+            result["parses"] = parse_candidates[-1]
+        return result
+
+    text = fflogs_text_from_html(page)
+    for name in job_names:
+        index = text.rfind(name)
+        if index < 0:
+            continue
+        section = text[index : index + 800]
+        date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", section)
+        number_text = section[date_match.end():] if date_match else section
+        numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
+        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number]
+        if dps_candidates:
+            return {
+                "dps": dps_candidates[0],
+                "date_range": date_match.group(0) if date_match else None,
+            }
+    return None
+
+
+def parse_logs_statistics_version_label(page: str) -> str | None:
+    text = fflogs_text_from_html(page)
+    matches = re.findall(r"(?:标准阵容构成|Standard Comps)\s*(?:\([^)]+\))?", text)
+    return matches[-1] if matches else None
+
+
+async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict) -> tuple[dict, str] | None:
+    host = FFLOGS_HOSTS[query.cn_source]
+    stat = {}
+    date_range = None
+    parses = None
+    version_label = None
+    for percentile in sorted(FFLOGS_PERCENTILES, reverse=True):
+        params = {
+            "boss": str(boss["pk"]),
+            "class": "Global",
+            "spec": job["name"],
+            "dataset": str(percentile),
+        }
+        if query.dps_type != "rdps":
+            params["dpstype"] = query.dps_type
+        url = f"{host}/zone/statistics/{boss['quest']}?{urlencode(params)}"
+        logger.info(f"FFLogs statistics page URL: {url}")
+        page = await aiohttp_get(url, res_type="text", headers={"Referer": host})
+        if not isinstance(page, str):
+            return None
+        parsed = parse_logs_statistics_summary_row(page, job)
+        if not parsed:
+            return None
+        stat[str(percentile)] = parsed["dps"]
+        date_range = date_range or parsed.get("date_range")
+        parses = parses or parsed.get("parses")
+        version_label = version_label or parse_logs_statistics_version_label(page)
+    if any(str(percentile) not in stat for percentile in FFLOGS_PERCENTILES):
+        return None
+    if date_range:
+        stat["date_range"] = date_range
+    if parses:
+        stat["parses"] = parses
+    return stat, version_label or "网页默认"
 
 
 async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) -> tuple[str, str] | None:
@@ -1664,6 +1764,12 @@ def parse_logs_statistics_page(page: str) -> list[dict]:
 
 
 async def create_logs_text_crawl(query: LogsQuery, boss: dict, job: dict) -> str:
+    if query.day == -1:
+        summary_result = await fetch_logs_statistics_summary(query, boss, job)
+        if summary_result:
+            stat, region_info = summary_result
+            return normalize_fflogs_result(stat, query, boss, job, region_info, "FFLogs statistics page")
+
     result = await fetch_logs_statistics_page(query, boss, job)
     if not result:
         return "查不到数据，怎么回事呢？"
