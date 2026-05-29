@@ -408,18 +408,18 @@ LOGS_SERVER_TOKENS = {
 LOGS_DPS_TYPES = {"rdps", "adps", "pdps", "ndps", "cdps"}
 FFLOGS_GLOBAL_CHARACTER_REGIONS = ["JP", "NA", "EU", "OC"]
 FFLOGS_CHARACTER_ZONE_REQUESTS = [
-    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101, "type": "savage", "version": "7.0"},
-    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101, "type": "savage", "version": "7.0"},
-    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101, "type": "savage", "version": "7.0"},
-    {"key": "ultimate_70_future", "zone_id": 65, "difficulty": None, "type": "ultimate", "version": "7.0", "order": 70},
-    {"key": "ultimate_70_legacy", "zone_id": 59, "difficulty": None, "type": "ultimate", "version": "7.0", "order": 70},
-    {"key": "ultimate_60_top", "zone_id": 53, "difficulty": None, "type": "ultimate", "version": "6.0", "order": 60},
-    {"key": "ultimate_60_dsr", "zone_id": 45, "difficulty": None, "type": "ultimate", "version": "6.0", "order": 60},
-    {"key": "ultimate_60_legacy", "zone_id": 43, "difficulty": None, "type": "ultimate", "version": "6.0", "order": 60},
-    {"key": "ultimate_50_tea", "zone_id": 32, "difficulty": None, "type": "ultimate", "version": "5.0", "order": 50},
-    {"key": "ultimate_50_legacy", "zone_id": 30, "difficulty": None, "type": "ultimate", "version": "5.0", "order": 50},
-    {"key": "ultimate_40_uwu", "zone_id": 23, "difficulty": None, "type": "ultimate", "version": "4.0", "order": 40},
-    {"key": "ultimate_40_ucob", "zone_id": 19, "difficulty": None, "type": "ultimate", "version": "4.0", "order": 40},
+    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101, "type": "savage", "version": "7.x"},
+    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101, "type": "savage", "version": "7.x"},
+    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101, "type": "savage", "version": "7.x"},
+    {"key": "ultimate_70_future", "zone_id": 65, "difficulty": None, "type": "ultimate", "version": "7.x", "order": 70},
+    {"key": "ultimate_70_legacy", "zone_id": 59, "difficulty": None, "type": "ultimate", "version": "7.x", "order": 70},
+    {"key": "ultimate_60_top", "zone_id": 53, "difficulty": None, "type": "ultimate", "version": "6.x", "order": 60},
+    {"key": "ultimate_60_dsr", "zone_id": 45, "difficulty": None, "type": "ultimate", "version": "6.x", "order": 60},
+    {"key": "ultimate_60_legacy", "zone_id": 43, "difficulty": None, "type": "ultimate", "version": "6.x", "order": 60},
+    {"key": "ultimate_50_tea", "zone_id": 32, "difficulty": None, "type": "ultimate", "version": "5.x", "order": 50},
+    {"key": "ultimate_50_legacy", "zone_id": 30, "difficulty": None, "type": "ultimate", "version": "5.x", "order": 50},
+    {"key": "ultimate_40_uwu", "zone_id": 23, "difficulty": None, "type": "ultimate", "version": "4.x", "order": 40},
+    {"key": "ultimate_40_ucob", "zone_id": 19, "difficulty": None, "type": "ultimate", "version": "4.x", "order": 40},
 ]
 FFLOGS_CHARACTER_SHORT_LABELS = {
     93: "M1S",
@@ -2427,6 +2427,8 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
             total_parses = fflogs_character_int(ranking, "totalParses", "rankTotalParses", "total_parses")
             job_name = fflogs_character_value(ranking, "spec", "bestSpec", "best_job", "job")
             job_label = fflogs_character_job_label(str(job_name) if job_name else None)
+            if percent is None and amount is None and rank is None:
+                continue
             current = records.get(label)
             current_percent = current.get("percent") if current else None
             if current:
@@ -3196,7 +3198,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.22",
+    "0.14.23",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
