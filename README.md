@@ -28,6 +28,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 | `价格` | 查询市场板物价 | 图片 |
 | `房子` / `房屋` | 查询指定服务器空房 | 图片，参数错误时返回文本 |
 | `输出` | 查询 FFLogs 输出分位 | 文本 |
+| `logs` | 查询角色 FFLogs 战绩 | 文本 |
 | `抽卡` | 随机抽取一张 FF14 塔罗牌 | 文字图片 + 塔罗牌图片 |
 
 ## 命令说明
@@ -231,6 +232,32 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 
 数据源优先级：分位数据使用对应站点的 FFLogs statistics table 网页解析；配置 FFLogs API 凭据后，本地 boss 映射查不到时会使用 FFLogs metadata 动态匹配 boss。
 
+### logs
+
+```text
+logs 角色名 服务器名
+logs 角色名 服务器名 国服
+logs 角色名 服务器名 国际服
+```
+
+示例：
+
+```text
+logs 一色彩羽 银泪湖
+logs Character Name Tonberry 国际服
+```
+
+查询角色公开 FFLogs 战绩。角色名支持空格，服务器名放在最后；未指定国服/国际服时跟随 `默认使用国际服 FFLogs` 配置，若服务器无法识别会尝试备用站点。
+
+返回文本内容包含：角色名、服务器、数据源、FFLogs 角色页链接，以及绝境战、7.0 阿卡狄亚零式、6.0 万魔殿零式中已有记录的百分位、职业、rDPS 和排名信息。
+
+配置项：
+
+- `FFLogs API Client ID`
+- `FFLogs API Client Secret`
+
+数据源：FFLogs v2 GraphQL Character API。当前实现按 `zoneRankings` 拉取常用零式/绝本分区数据。
+
 ### 抽卡
 
 ```text
@@ -247,9 +274,9 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 | --- | --- | --- |
 | `默认使用国际服日历` | `false` | 控制 `日历` 命令无参数时默认查询国服还是国际服。 |
 | `微博 Cookie` | 空 | 可选。供 `看看微博` 请求微博移动端接口时使用，提高稳定性。 |
-| `FFLogs API Client ID` | 空 | 可选。供 `输出` 在本地 boss 映射查不到时动态查询 FFLogs metadata。 |
-| `FFLogs API Client Secret` | 空 | 可选。供 `输出` 获取 FFLogs OAuth token。 |
-| `默认使用国际服 FFLogs` | `false` | 控制 `输出` 命令无服务器参数时默认查询国服还是国际服。 |
+| `FFLogs API Client ID` | 空 | 可选。供 `输出` 在本地 boss 映射查不到时动态查询 FFLogs metadata，并供 `logs` 查询角色战绩。 |
+| `FFLogs API Client Secret` | 空 | 可选。供 `输出` 和 `logs` 获取 FFLogs OAuth token。 |
+| `默认使用国际服 FFLogs` | `false` | 控制 `输出` 和 `logs` 命令无服务器参数时默认查询国服还是国际服。 |
 
 ## 后续待迁移
 
@@ -272,7 +299,7 @@ https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru
 - [Bilibili](https://www.bilibili.com/)：暖暖视频来源之一。
 - [微博](https://weibo.com/1797798792)：`看看微博` 的 FF14 官方微博数据源。
 - [FFLogs statistics](https://cn.fflogs.com/)：`输出` 的分位数据源。
-- [FFLogs API](https://cn.fflogs.com/api/docs)：`输出` 动态匹配 boss metadata 的数据源。
+- [FFLogs API](https://cn.fflogs.com/api/docs)：`输出` 动态匹配 boss metadata、`logs` 查询角色战绩的数据源。
 - [fflogsapi](https://fflogsapi.readthedocs.io/en/latest/index.html)：FFLogs API 调用方式参考。
 - [Pillow](https://python-pillow.org/)：文本转图片渲染。
 - [icalendar](https://icalendar.readthedocs.io/)：ICS 日历解析。

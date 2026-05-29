@@ -387,6 +387,13 @@ class LogsQuery:
     day: int
 
 
+@dataclass
+class CharacterLogsQuery:
+    character_name: str | None
+    server_name: str | None
+    cn_source: bool | None
+
+
 LOGS_SERVER_TOKENS = {
     "国际服": False,
     "国际": False,
@@ -399,6 +406,75 @@ LOGS_SERVER_TOKENS = {
     "china": True,
 }
 LOGS_DPS_TYPES = {"rdps", "adps", "pdps", "ndps", "cdps"}
+FFLOGS_GLOBAL_CHARACTER_REGIONS = ["JP", "NA", "EU", "OC"]
+FFLOGS_CHARACTER_ZONE_REQUESTS = [
+    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101},
+    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101},
+    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101},
+    {"key": "pandaemonium_asphodelos", "zone_id": 44, "difficulty": 101},
+    {"key": "pandaemonium_abyssos", "zone_id": 49, "difficulty": 101},
+    {"key": "pandaemonium_anabaseios", "zone_id": 54, "difficulty": 101},
+    {"key": "ultimate_future", "zone_id": 65, "difficulty": None},
+    {"key": "ultimate_dawntrail_old", "zone_id": 59, "difficulty": None},
+    {"key": "ultimate_endwalker_top", "zone_id": 53, "difficulty": None},
+    {"key": "ultimate_endwalker_dsr", "zone_id": 45, "difficulty": None},
+    {"key": "ultimate_legacy", "zone_id": 43, "difficulty": None},
+]
+FFLOGS_CHARACTER_SHORT_LABELS = {
+    93: "M1S",
+    94: "M2S",
+    95: "M3S",
+    96: "M4S",
+    97: "M5S",
+    98: "M6S",
+    99: "M7S",
+    100: "M8S",
+    101: "M9S",
+    102: "M10S",
+    103: "M11S",
+    104: "M12S门神",
+    105: "M12S本体",
+    78: "P1S",
+    79: "P2S",
+    80: "P3S",
+    81: "P4S门神",
+    82: "P4S本体",
+    83: "P5S",
+    84: "P6S",
+    85: "P7S",
+    86: "P8S门神",
+    87: "P8S本体",
+    88: "P9S",
+    89: "P10S",
+    90: "P11S",
+    91: "P12S门神",
+    92: "P12S本体",
+    1079: "绝伊甸",
+    1077: "绝欧",
+    1068: "绝欧",
+    1076: "绝龙诗",
+    1065: "绝龙诗",
+    1075: "绝亚",
+    1062: "绝亚",
+    1074: "绝神兵",
+    1061: "绝神兵",
+    1073: "绝巴哈",
+    1060: "绝巴哈",
+}
+FFLOGS_CHARACTER_GROUPS = [
+    (
+        "绝境战",
+        [1079, 1077, 1068, 1076, 1065, 1075, 1062, 1074, 1061, 1073, 1060],
+    ),
+    (
+        "7.0 阿卡狄亚零式",
+        [105, 104, 103, 102, 101, 100, 99, 98, 97, 96, 95, 94, 93],
+    ),
+    (
+        "6.0 万魔殿零式",
+        [92, 91, 90, 89, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78],
+    ),
+]
 LOGS_BOSS_PHASE_GROUPS = [
     {
         "aliases": [
@@ -551,6 +627,7 @@ def create_help_text() -> str:
 [价格 (大区/服务器) 物品名 (HQ) (数量)] 查询市场物价
 [房子 服务器名 主城名 房子大小] 查询空房
 [输出 boss名 职业名 (国服) (rdps) (day2)] 查询FFLogs输出分段
+[logs 角色名 服务器名 (国服/国际服)] 查询角色FFLogs战绩
 [抽卡] 随机抽取一张FF14塔罗牌
 
 以下功能仍在迁移中：
@@ -2178,6 +2255,280 @@ async def create_logs_text(query: LogsQuery, client_id: str, client_secret: str)
     return "\n\n".join(results)
 
 
+def parse_character_logs_query(query: str) -> CharacterLogsQuery:
+    parts = query.split()
+    cn_source = None
+    content_parts = []
+    for part in parts:
+        lower = part.lower()
+        if lower in LOGS_SERVER_TOKENS:
+            cn_source = LOGS_SERVER_TOKENS[lower]
+            continue
+        content_parts.append(part)
+    if len(content_parts) < 2:
+        return CharacterLogsQuery(" ".join(content_parts).strip() or None, None, cn_source)
+    return CharacterLogsQuery(
+        character_name=" ".join(content_parts[:-1]).strip() or None,
+        server_name=content_parts[-1].strip() or None,
+        cn_source=cn_source,
+    )
+
+
+def build_fflogs_character_logs_query() -> str:
+    ranking_fields = []
+    for request in FFLOGS_CHARACTER_ZONE_REQUESTS:
+        args = [f"zoneID: {request['zone_id']}"]
+        if request.get("difficulty") is not None:
+            args.append(f"difficulty: {request['difficulty']}")
+        ranking_fields.append(f"{request['key']}: zoneRankings({', '.join(args)})")
+    joined_rankings = "\n                  ".join(ranking_fields)
+    return f"""
+query ($name: String, $server: String, $region: String) {{
+  characterData {{
+    character(name: $name, serverSlug: $server, serverRegion: $region) {{
+      id
+      name
+      server {{ name }}
+      {joined_rankings}
+    }}
+  }}
+}}
+"""
+
+
+async def is_cn_character_server(server_name: str) -> bool:
+    if server_name in HOUSE_SERVER_IDS:
+        return True
+    try:
+        worlds = await load_cn_world_names()
+    except Exception as exc:
+        logger.info(f"FFLogs 角色服务器名动态解析失败: {exc}")
+        return False
+    return server_name in worlds
+
+
+async def fflogs_character_server_candidates(
+    query: CharacterLogsQuery,
+    default_cn_source: bool,
+) -> list[tuple[str, str, str]]:
+    server_name = query.server_name or ""
+    if query.cn_source is True:
+        return [(FFLOGS_HOSTS[True], "CN", "国服")]
+    if query.cn_source is False:
+        return [(FFLOGS_HOSTS[False], region, f"国际服 {region}") for region in FFLOGS_GLOBAL_CHARACTER_REGIONS]
+
+    known_cn = await is_cn_character_server(server_name)
+    if known_cn:
+        return [(FFLOGS_HOSTS[True], "CN", "国服")]
+
+    cn_candidate = [(FFLOGS_HOSTS[True], "CN", "国服")]
+    global_candidates = [(FFLOGS_HOSTS[False], region, f"国际服 {region}") for region in FFLOGS_GLOBAL_CHARACTER_REGIONS]
+    return cn_candidate + global_candidates if default_cn_source else global_candidates + cn_candidate
+
+
+async def fetch_fflogs_character_logs(
+    query: CharacterLogsQuery,
+    host: str,
+    region: str,
+    client_id: str,
+    client_secret: str,
+) -> dict | None:
+    token = await get_fflogs_token(host, client_id, client_secret)
+    payload = await fflogs_graphql(
+        host,
+        token,
+        build_fflogs_character_logs_query(),
+        {"name": query.character_name, "server": query.server_name, "region": region},
+    )
+    character = payload.get("data", {}).get("characterData", {}).get("character")
+    return character if isinstance(character, dict) else None
+
+
+def fflogs_character_value(item: dict, *keys: str):
+    for key in keys:
+        if key in item and item[key] is not None:
+            return item[key]
+    return None
+
+
+def fflogs_character_float(item: dict, *keys: str) -> float | None:
+    value = fflogs_character_value(item, *keys)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def fflogs_character_int(item: dict, *keys: str) -> int | None:
+    value = fflogs_character_value(item, *keys)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def find_logs_boss_by_pk(encounter_id: int) -> dict | None:
+    for item in load_json_list(BOSS_JSON):
+        try:
+            if int(item.get("pk")) == encounter_id:
+                return item
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def fflogs_character_job_label(job_name: str | None) -> str:
+    if not job_name:
+        return "未知职业"
+    job = find_logs_job(job_name)
+    return str(job.get("cn_name") or job_name) if job else job_name
+
+
+def fflogs_character_encounter_label(encounter_id: int, encounter_name: str | None = None) -> str:
+    short_label = FFLOGS_CHARACTER_SHORT_LABELS.get(encounter_id)
+    boss = find_logs_boss_by_pk(encounter_id)
+    boss_name = str((boss or {}).get("cn_name") or encounter_name or encounter_id)
+    if short_label:
+        if short_label.startswith("绝"):
+            return short_label
+        return f"{short_label} {boss_name}"
+    return boss_name
+
+
+def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
+    records: dict[str, dict] = {}
+    for request in FFLOGS_CHARACTER_ZONE_REQUESTS:
+        ranking_payload = character.get(request["key"])
+        if not isinstance(ranking_payload, dict):
+            continue
+        rankings = (
+            ranking_payload.get("rankings")
+            or ranking_payload.get("encounterRanks")
+            or ranking_payload.get("encounter_ranks")
+            or []
+        )
+        if not isinstance(rankings, list):
+            continue
+        for ranking in rankings:
+            if not isinstance(ranking, dict):
+                continue
+            encounter = ranking.get("encounter") if isinstance(ranking.get("encounter"), dict) else {}
+            encounter_id = fflogs_character_int(encounter, "id")
+            if encounter_id is None:
+                encounter_id = fflogs_character_int(ranking, "encounterID", "encounter_id")
+            if encounter_id is None:
+                continue
+            label = fflogs_character_encounter_label(encounter_id, encounter.get("name"))
+            percent = fflogs_character_float(ranking, "rankPercent", "rank_percent", "historicalPercent")
+            amount = fflogs_character_float(ranking, "bestAmount", "best_amount", "amount")
+            rank = fflogs_character_int(ranking, "rank", "bestRank", "best_rank")
+            total_parses = fflogs_character_int(ranking, "totalParses", "rankTotalParses", "total_parses")
+            job_name = fflogs_character_value(ranking, "spec", "bestSpec", "best_job", "job")
+            job_label = fflogs_character_job_label(str(job_name) if job_name else None)
+            current = records.get(label)
+            current_percent = current.get("percent") if current else None
+            if current:
+                if percent is None and current_percent is not None:
+                    continue
+                if percent is not None and current_percent is not None and percent <= current_percent:
+                    continue
+            records[label] = {
+                "encounter_id": encounter_id,
+                "label": label,
+                "percent": percent,
+                "amount": amount,
+                "rank": rank,
+                "total_parses": total_parses,
+                "job": job_label,
+            }
+    return records
+
+
+def fflogs_character_url(host: str, region: str, server_name: str, character_name: str) -> str:
+    return f"{host}/character/{quote(region)}/{quote(server_name)}/{quote(character_name)}"
+
+
+def format_fflogs_character_record(record: dict) -> str:
+    percent = record.get("percent")
+    percent_text = f"{percent:.1f}%" if isinstance(percent, (int, float)) else "--"
+    details = [str(record.get("job") or "未知职业")]
+    amount = record.get("amount")
+    if isinstance(amount, (int, float)) and amount > 0:
+        details.append(f"{amount:,.0f} rDPS")
+    rank = record.get("rank")
+    total = record.get("total_parses")
+    if isinstance(rank, int) and isinstance(total, int) and total > 0:
+        details.append(f"#{rank}/{total}")
+    elif isinstance(rank, int):
+        details.append(f"#{rank}")
+    return f"{record['label']}: {percent_text} ({' / '.join(details)})"
+
+
+def format_fflogs_character_logs(
+    query: CharacterLogsQuery,
+    character: dict,
+    source_label: str,
+    host: str,
+    region: str,
+) -> str:
+    character_name = str(character.get("name") or query.character_name)
+    server = character.get("server") if isinstance(character.get("server"), dict) else {}
+    server_name = str(server.get("name") or query.server_name)
+    records = collect_fflogs_character_records(character)
+    lines = [
+        f"【FFLogs角色】{character_name} @ {server_name}",
+        f"数据源: FFLogs API ({source_label})",
+        fflogs_character_url(host, region, server_name, character_name),
+    ]
+    if not records:
+        lines.append("暂无公开可用的零式/绝本排名记录。")
+        return "\n".join(lines)
+
+    for title, encounter_ids in FFLOGS_CHARACTER_GROUPS:
+        section_lines = []
+        seen_labels = set()
+        for encounter_id in encounter_ids:
+            label = fflogs_character_encounter_label(encounter_id)
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            record = records.get(label)
+            if record:
+                section_lines.append(format_fflogs_character_record(record))
+        lines.append("")
+        lines.append(f"【{title}】")
+        lines.extend(section_lines if section_lines else ["暂无记录"])
+    return "\n".join(lines)
+
+
+async def create_character_logs_text(
+    query: CharacterLogsQuery,
+    client_id: str,
+    client_secret: str,
+    default_cn_source: bool = True,
+) -> str:
+    if not query.character_name or not query.server_name:
+        return "查角色logs格式：logs 角色名 服务器名 (国服/国际服)\n例：logs 一色彩羽 银泪湖"
+    if not client_id or not client_secret:
+        return "请先在 AstrBot 插件配置中填写 FFLogs API Client ID 和 FFLogs API Client Secret。"
+
+    candidates = await fflogs_character_server_candidates(query, default_cn_source)
+    errors = []
+    for host, region, source_label in candidates:
+        try:
+            character = await fetch_fflogs_character_logs(query, host, region, client_id, client_secret)
+        except Exception as exc:
+            logger.warning(f"FFLogs 角色查询失败 ({source_label}): {exc}")
+            errors.append(f"{source_label}: {exc}")
+            continue
+        if character:
+            return format_fflogs_character_logs(query, character, source_label, host, region)
+
+    if errors:
+        return "FFLogs 角色查询失败，请检查插件日志或稍后再试。"
+    return f"未找到角色：{query.character_name} @ {query.server_name}。请检查角色名、服务器名或追加 国服/国际服。"
+
+
 def party_optional_text(value) -> str:
     if value is None:
         return ""
@@ -2831,7 +3182,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.0",
+    "0.14.21",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
@@ -3055,6 +3406,19 @@ class TataruPlugin(Star):
                 logs_query,
                 self.fflogs_client_id(),
                 self.fflogs_client_secret(),
+            )
+        )
+
+    @filter.command("logs")
+    async def character_logs(self, event: AstrMessageEvent):
+        """查询角色FFLogs战绩。"""
+        logs_query = parse_character_logs_query(command_args(event.message_str, "logs"))
+        yield event.plain_result(
+            await create_character_logs_text(
+                logs_query,
+                self.fflogs_client_id(),
+                self.fflogs_client_secret(),
+                self.default_logs_cn_source(),
             )
         )
 
