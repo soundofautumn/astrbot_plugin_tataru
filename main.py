@@ -1728,8 +1728,6 @@ def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
         if not any(name in text for name in job_names):
             continue
         date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
-        if not date_match:
-            continue
         number_text = text[date_match.end():] if date_match else text
         numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
         dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number and parse_fflogs_number(number) >= 1000]
@@ -1753,8 +1751,6 @@ def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
             continue
         section = text[index : index + 800]
         date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", section)
-        if not date_match:
-            continue
         number_text = section[date_match.end():] if date_match else section
         numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
         dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number and parse_fflogs_number(number) >= 1000]
