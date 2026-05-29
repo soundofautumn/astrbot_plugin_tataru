@@ -1,5 +1,13 @@
 # 更新日志
 
+## v0.14.24
+
+### 调整
+
+- `logs` 通过 FFLogs metadata 动态读取 zone partitions，并按 `zoneRankings(partition: ...)` 查询角色记录。
+- `logs` 的绝境战和零式输出都会标注具体 FFLogs 分区版本，例如 `7.5记录`，不再只显示 `7.x记录`。
+- `logs` 判断有效记录时要求百分位、伤害或排名为正数，避免 `rank=0` 空占位继续输出。
+
 ## v0.14.23
 
 ### 修复

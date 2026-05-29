@@ -407,10 +407,10 @@ LOGS_SERVER_TOKENS = {
 }
 LOGS_DPS_TYPES = {"rdps", "adps", "pdps", "ndps", "cdps"}
 FFLOGS_GLOBAL_CHARACTER_REGIONS = ["JP", "NA", "EU", "OC"]
-FFLOGS_CHARACTER_ZONE_REQUESTS = [
-    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101, "type": "savage", "version": "7.x"},
-    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101, "type": "savage", "version": "7.x"},
-    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101, "type": "savage", "version": "7.x"},
+FFLOGS_CHARACTER_BASE_ZONES = [
+    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101, "type": "savage", "version": "7.x", "order": 70},
+    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101, "type": "savage", "version": "7.x", "order": 70},
+    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101, "type": "savage", "version": "7.x", "order": 70},
     {"key": "ultimate_70_future", "zone_id": 65, "difficulty": None, "type": "ultimate", "version": "7.x", "order": 70},
     {"key": "ultimate_70_legacy", "zone_id": 59, "difficulty": None, "type": "ultimate", "version": "7.x", "order": 70},
     {"key": "ultimate_60_top", "zone_id": 53, "difficulty": None, "type": "ultimate", "version": "6.x", "order": 60},
@@ -421,6 +421,7 @@ FFLOGS_CHARACTER_ZONE_REQUESTS = [
     {"key": "ultimate_40_uwu", "zone_id": 23, "difficulty": None, "type": "ultimate", "version": "4.x", "order": 40},
     {"key": "ultimate_40_ucob", "zone_id": 19, "difficulty": None, "type": "ultimate", "version": "4.x", "order": 40},
 ]
+FFLOGS_CHARACTER_ZONE_REQUESTS = [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
 FFLOGS_CHARACTER_SHORT_LABELS = {
     93: "M1S",
     94: "M2S",
@@ -2276,12 +2277,60 @@ def parse_character_logs_query(query: str) -> CharacterLogsQuery:
     )
 
 
-def build_fflogs_character_logs_query() -> str:
+def fflogs_character_partition_label(partition: dict) -> str:
+    return str(partition.get("compactName") or partition.get("name") or partition.get("id") or "").strip()
+
+
+def fflogs_character_zone_partitions(metadata: dict, zone_id: int) -> list[tuple[int, str]]:
+    zone = fflogs_zone_by_id(metadata).get(zone_id)
+    if not isinstance(zone, dict):
+        return []
+    partitions = []
+    for partition in zone.get("partitions", []):
+        if not isinstance(partition, dict) or partition.get("id") is None:
+            continue
+        try:
+            partition_id = int(partition["id"])
+        except (TypeError, ValueError):
+            continue
+        if partition_id <= 0:
+            continue
+        label = fflogs_character_partition_label(partition)
+        label_key = normalize_logs_lookup(label)
+        if "nonstandard" in label_key or "非标准" in label:
+            continue
+        partitions.append((partition_id, label or str(partition_id)))
+    return sorted(partitions, key=lambda item: item[0])
+
+
+def build_fflogs_character_zone_requests(metadata: dict | None = None) -> list[dict]:
+    if not metadata:
+        return [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
+    requests = []
+    for base in FFLOGS_CHARACTER_BASE_ZONES:
+        partitions = fflogs_character_zone_partitions(metadata, int(base["zone_id"]))
+        if not partitions:
+            requests.append(dict(base))
+            continue
+        for partition_id, label in partitions:
+            item = dict(base)
+            item["partition"] = partition_id
+            item["version"] = label
+            item["partition_order"] = partition_id
+            item["key"] = f"{base['key']}_p{partition_id}"
+            requests.append(item)
+    return requests
+
+
+def build_fflogs_character_logs_query(requests: list[dict] | None = None) -> str:
+    requests = requests or FFLOGS_CHARACTER_ZONE_REQUESTS
     ranking_fields = []
-    for request in FFLOGS_CHARACTER_ZONE_REQUESTS:
+    for request in requests:
         args = [f"zoneID: {request['zone_id']}"]
         if request.get("difficulty") is not None:
             args.append(f"difficulty: {request['difficulty']}")
+        if request.get("partition") is not None:
+            args.append(f"partition: {int(request['partition'])}")
         ranking_fields.append(f"{request['key']}: zoneRankings({', '.join(args)})")
     joined_rankings = "\n                  ".join(ranking_fields)
     return f"""
@@ -2336,13 +2385,21 @@ async def fetch_fflogs_character_logs(
     client_secret: str,
 ) -> dict | None:
     token = await get_fflogs_token(host, client_id, client_secret)
+    requests = FFLOGS_CHARACTER_ZONE_REQUESTS
+    try:
+        metadata = await fetch_fflogs_metadata(host, token)
+        requests = build_fflogs_character_zone_requests(metadata)
+    except Exception as exc:
+        logger.info(f"FFLogs 角色查询分区 metadata 获取失败，使用默认分区: {exc}")
     payload = await fflogs_graphql(
         host,
         token,
-        build_fflogs_character_logs_query(),
+        build_fflogs_character_logs_query(requests),
         {"name": query.character_name, "server": query.server_name, "region": region},
     )
     character = payload.get("data", {}).get("characterData", {}).get("character")
+    if isinstance(character, dict):
+        character["_tataru_requests"] = requests
     return character if isinstance(character, dict) else None
 
 
@@ -2399,7 +2456,8 @@ def fflogs_character_encounter_label(encounter_id: int, encounter_name: str | No
 
 def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
     records: dict[str, dict] = {}
-    for request in FFLOGS_CHARACTER_ZONE_REQUESTS:
+    requests = character.get("_tataru_requests", FFLOGS_CHARACTER_ZONE_REQUESTS)
+    for request in requests:
         ranking_payload = character.get(request["key"])
         if not isinstance(ranking_payload, dict):
             continue
@@ -2427,13 +2485,16 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
             total_parses = fflogs_character_int(ranking, "totalParses", "rankTotalParses", "total_parses")
             job_name = fflogs_character_value(ranking, "spec", "bestSpec", "best_job", "job")
             job_label = fflogs_character_job_label(str(job_name) if job_name else None)
-            if percent is None and amount is None and rank is None:
+            has_percent = percent is not None and percent > 0
+            has_amount = amount is not None and amount > 0
+            has_rank = rank is not None and rank > 0
+            if not any([has_percent, has_amount, has_rank]):
                 continue
             current = records.get(label)
             current_percent = current.get("percent") if current else None
             if current:
-                if request.get("type") == "ultimate":
-                    request_order = int(request.get("order", 0))
+                if request.get("type") in {"ultimate", "savage"}:
+                    request_order = int(request.get("order", 0)) * 100000 + int(request.get("partition_order", 0))
                     current_order = int(current.get("version_order", 0))
                     if request_order < current_order:
                         continue
@@ -2448,7 +2509,7 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
                 "label": label,
                 "category": request.get("type"),
                 "version": request.get("version"),
-                "version_order": request.get("order", 0),
+                "version_order": int(request.get("order", 0)) * 100000 + int(request.get("partition_order", 0)),
                 "percent": percent,
                 "amount": amount,
                 "rank": rank,
@@ -2466,7 +2527,7 @@ def format_fflogs_character_record(record: dict) -> str:
     percent = record.get("percent")
     percent_text = f"{percent:.1f}%" if isinstance(percent, (int, float)) else "--"
     details = [str(record.get("job") or "未知职业")]
-    if record.get("category") == "ultimate" and record.get("version"):
+    if record.get("category") in {"ultimate", "savage"} and record.get("version"):
         details.append(f"{record['version']}记录")
     amount = record.get("amount")
     if isinstance(amount, (int, float)) and amount > 0:
@@ -3198,7 +3259,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.23",
+    "0.14.24",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
