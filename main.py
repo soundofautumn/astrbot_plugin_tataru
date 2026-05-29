@@ -1619,7 +1619,7 @@ async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) ->
         for aggregate in FFLOGS_STAT_AGGREGATES:
             url = (
                 f"{host}/zone/statistics/table/"
-                f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/6/{int(region_id)}/100/1000/7/"
+                f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/8/{int(region_id)}/100/1000/7/"
                 f"{boss['patch']}/Global/{job['name']}/All/0/{aggregate}/single/0/-1/?"
                 f"{urlencode(params)}"
             )
