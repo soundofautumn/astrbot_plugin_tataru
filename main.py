@@ -1948,6 +1948,38 @@ async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict)
     return stat, version_label or "网页默认"
 
 
+async def fetch_logs_statistics_browser_table(query: LogsQuery, boss: dict, job: dict) -> tuple[dict, str] | None:
+    regions = fflogs_region_entries(boss, query.cn_source)
+    if not regions:
+        return None
+    host = FFLOGS_HOSTS[query.cn_source]
+    for region_entry in [regions[-index - 1] for index in range(len(regions))]:
+        region_info, region_id = region_entry.split("###", 1)
+        params = {"keystone": "15", "dpstype": query.dps_type}
+        url = (
+            f"{host}/zone/statistics/table/"
+            f"{boss['quest']}/dps/{boss['pk']}/{boss['savage']}/8/{int(region_id)}/100/1/14/0/"
+            f"Global/{job['name']}/All/0/normalized/single/0/-1/?"
+            f"{urlencode(params)}"
+        )
+        logger.info(f"FFLogs statistics browser table URL: {url}")
+        page = await aiohttp_get(url, res_type="text", headers={"Referer": host})
+        if not isinstance(page, str) or "data.push" not in page:
+            continue
+        rows = parse_logs_statistics_page(page)
+        if not rows:
+            continue
+        stat = rows[-1]
+        summary = parse_logs_statistics_summary_row(page, job)
+        if summary and summary.get("date_range"):
+            stat["date_range"] = summary["date_range"]
+        if summary and summary.get("parses"):
+            stat["parses"] = summary["parses"]
+        logger.info("FFLogs statistics browser table matched")
+        return stat, f"{region_info} / normalized"
+    return None
+
+
 async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) -> tuple[str, str] | None:
     regions = fflogs_region_entries(boss, query.cn_source)
     if not regions:
@@ -2008,6 +2040,10 @@ def parse_logs_statistics_page(page: str) -> list[dict]:
 
 async def create_logs_text_crawl(query: LogsQuery, boss: dict, job: dict) -> str:
     if query.day == -1:
+        browser_table_result = await fetch_logs_statistics_browser_table(query, boss, job)
+        if browser_table_result:
+            stat, region_info = browser_table_result
+            return normalize_fflogs_result(stat, query, boss, job, region_info, "FFLogs statistics browser table")
         summary_result = await fetch_logs_statistics_summary(query, boss, job)
         if summary_result:
             stat, region_info = summary_result

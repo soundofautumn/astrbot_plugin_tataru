@@ -1,5 +1,12 @@
 # 更新日志
 
+## v0.14.19
+
+### 修复
+
+- `输出` 默认查询改为直接请求 Chrome DevTools 确认的 FFLogs statistics XHR 路径：`100/1/14/0/.../normalized/.../?keystone=15&dpstype=...`。
+- `输出` 保留页面解析诊断作为兜底，但优先使用浏览器同款 statistics table 响应，避免旧 `100/1000/7/0` 时间序列口径。
+
 ## v0.14.18
 
 ### 调试
