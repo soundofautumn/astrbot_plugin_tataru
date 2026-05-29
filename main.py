@@ -1632,8 +1632,63 @@ def fflogs_number_candidates(value: str) -> list[float]:
     return [parse_fflogs_number(number) for number in numbers if parse_fflogs_number(number) >= 1000]
 
 
+def fflogs_decimal_candidates(value: str) -> list[float]:
+    numbers = re.findall(r"\d{1,3}(?:,\d{3})*\.\d+|\d+\.\d+", value)
+    return [parse_fflogs_number(number) for number in numbers if parse_fflogs_number(number) >= 1000]
+
+
+def choose_fflogs_percentile_values(values: list[float]) -> list[float] | None:
+    expected_count = len(FFLOGS_PERCENTILES)
+    for index in range(0, len(values) - expected_count + 1):
+        block = values[index : index + expected_count]
+        if block[0] > block[1] and all(block[item] >= block[item + 1] for item in range(expected_count - 1)):
+            return block
+    return None
+
+
+def parse_logs_statistics_chart_value_block(text: str, job: dict) -> dict | None:
+    label_groups = [
+        [f"{job.get('cn_name', '')} 最高", f"{job.get('name', '')} Max"],
+        ["第99百分位数", "99th percentile", "99th Percentile"],
+        ["第95百分位数", "95th percentile", "95th Percentile"],
+        ["第75百分位数", "75th percentile", "75th Percentile"],
+        ["第50百分位数", "50th percentile", "50th Percentile", "Median"],
+        ["第25百分位数", "25th percentile", "25th Percentile"],
+        ["第10百分位数", "10th percentile", "10th Percentile"],
+    ]
+    positions = []
+    for labels in label_groups:
+        match = None
+        for label in labels:
+            if not label.strip():
+                continue
+            match = re.search(re.escape(label), text, flags=re.IGNORECASE)
+            if match:
+                break
+        if not match:
+            return None
+        positions.append(match.start())
+    if not positions:
+        return None
+    start = max(0, min(positions) - 8000)
+    end = min(len(text), max(positions) + 8000)
+    values = choose_fflogs_percentile_values(fflogs_decimal_candidates(text[start:end]))
+    if not values:
+        return None
+    stat = {}
+    for percentile, value in zip(sorted(FFLOGS_PERCENTILES, reverse=True), values):
+        stat[str(percentile)] = value
+    date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+    if date_match:
+        stat["date_range"] = date_match.group(0)
+    return stat
+
+
 def parse_logs_statistics_chart_values(page: str, job: dict) -> dict | None:
     text = decode_fflogs_page_text(page)
+    block_stat = parse_logs_statistics_chart_value_block(text, job)
+    if block_stat:
+        return block_stat
     labels = {
         100: [f"{job.get('cn_name', '')} 最高", f"{job.get('name', '')} Max", "最高", "Max"],
         99: ["第99百分位数", "99th percentile", "99th Percentile"],
@@ -1657,7 +1712,7 @@ def parse_logs_statistics_chart_values(page: str, job: dict) -> dict | None:
             if str(percentile) in stat:
                 break
         if str(percentile) not in stat:
-            return None
+            return parse_logs_statistics_chart_value_block(text, job)
     date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
     if date_match:
         stat["date_range"] = date_match.group(0)
