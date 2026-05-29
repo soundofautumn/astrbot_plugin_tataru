@@ -1613,11 +1613,55 @@ def parse_fflogs_number(value: str) -> float:
     return float(value.replace(",", ""))
 
 
+def decode_fflogs_page_text(value: str) -> str:
+    text = html.unescape(value)
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
+    return text.replace("\\/", "/")
+
+
 def fflogs_text_from_html(value: str) -> str:
-    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", value, flags=re.IGNORECASE | re.DOTALL)
+    text = decode_fflogs_page_text(value)
+    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<style\b[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<[^>]+>", " ", text)
-    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def fflogs_number_candidates(value: str) -> list[float]:
+    numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", value)
+    return [parse_fflogs_number(number) for number in numbers if parse_fflogs_number(number) >= 1000]
+
+
+def parse_logs_statistics_chart_values(page: str, job: dict) -> dict | None:
+    text = decode_fflogs_page_text(page)
+    labels = {
+        100: [f"{job.get('cn_name', '')} 最高", f"{job.get('name', '')} Max", "最高", "Max"],
+        99: ["第99百分位数", "99th percentile", "99th Percentile"],
+        95: ["第95百分位数", "95th percentile", "95th Percentile"],
+        75: ["第75百分位数", "75th percentile", "75th Percentile"],
+        50: ["第50百分位数", "50th percentile", "50th Percentile", "Median"],
+        25: ["第25百分位数", "25th percentile", "25th Percentile"],
+        10: ["第10百分位数", "10th percentile", "10th Percentile"],
+    }
+    stat = {}
+    for percentile, names in labels.items():
+        for label in names:
+            if not label.strip():
+                continue
+            for match in re.finditer(re.escape(label), text, flags=re.IGNORECASE):
+                section = text[match.end() : match.end() + 400]
+                candidates = fflogs_number_candidates(section)
+                if candidates:
+                    stat[str(percentile)] = candidates[0]
+                    break
+            if str(percentile) in stat:
+                break
+        if str(percentile) not in stat:
+            return None
+    date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+    if date_match:
+        stat["date_range"] = date_match.group(0)
+    return stat
 
 
 def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
@@ -1629,9 +1673,11 @@ def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
         if not any(name in text for name in job_names):
             continue
         date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+        if not date_match:
+            continue
         number_text = text[date_match.end():] if date_match else text
         numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
-        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number]
+        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number and parse_fflogs_number(number) >= 1000]
         if not dps_candidates:
             continue
         result = {
@@ -1652,9 +1698,11 @@ def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
             continue
         section = text[index : index + 800]
         date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", section)
+        if not date_match:
+            continue
         number_text = section[date_match.end():] if date_match else section
         numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
-        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number]
+        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number and parse_fflogs_number(number) >= 1000]
         if dps_candidates:
             return {
                 "dps": dps_candidates[0],
@@ -1675,7 +1723,8 @@ async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict)
     date_range = None
     parses = None
     version_label = None
-    for percentile in sorted(FFLOGS_PERCENTILES, reverse=True):
+    sorted_percentiles = sorted(FFLOGS_PERCENTILES, reverse=True)
+    for index, percentile in enumerate(sorted_percentiles):
         params = {
             "boss": str(boss["pk"]),
             "class": "Global",
@@ -1689,6 +1738,12 @@ async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict)
         page = await aiohttp_get(url, res_type="text", headers={"Referer": host})
         if not isinstance(page, str):
             return None
+        if index == 0:
+            chart_stat = parse_logs_statistics_chart_values(page, job)
+            if chart_stat:
+                logger.info("FFLogs statistics chart values matched")
+                version_label = parse_logs_statistics_version_label(page)
+                return chart_stat, version_label or "网页默认"
         parsed = parse_logs_statistics_summary_row(page, job)
         if not parsed:
             return None
