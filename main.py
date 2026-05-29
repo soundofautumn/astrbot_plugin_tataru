@@ -422,6 +422,8 @@ FFLOGS_CHARACTER_BASE_ZONES = [
     {"key": "ultimate_40_ucob", "zone_id": 19, "difficulty": None, "type": "ultimate", "version": "4.x", "order": 40},
 ]
 FFLOGS_CHARACTER_ZONE_REQUESTS = [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
+FFLOGS_CHARACTER_QUERY_BATCH_SIZE = 8
+FFLOGS_CHARACTER_QUERY_CONCURRENCY = 3
 FFLOGS_CHARACTER_SHORT_LABELS = {
     93: "M1S",
     94: "M2S",
@@ -2307,8 +2309,17 @@ def build_fflogs_character_zone_requests(metadata: dict | None = None) -> list[d
     if not metadata:
         return [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
     requests = []
+    latest_savage_zone_id = max(
+        int(item["zone_id"])
+        for item in FFLOGS_CHARACTER_BASE_ZONES
+        if item.get("type") == "savage"
+    )
     for base in FFLOGS_CHARACTER_BASE_ZONES:
+        if base.get("type") == "savage" and int(base["zone_id"]) != latest_savage_zone_id:
+            continue
         partitions = fflogs_character_zone_partitions(metadata, int(base["zone_id"]))
+        if base.get("type") == "savage" and partitions:
+            partitions = [partitions[-1]]
         if not partitions:
             requests.append(dict(base))
             continue
@@ -2320,6 +2331,13 @@ def build_fflogs_character_zone_requests(metadata: dict | None = None) -> list[d
             item["key"] = f"{base['key']}_p{partition_id}"
             requests.append(item)
     return requests
+
+
+def iter_fflogs_character_request_batches(requests: list[dict]) -> list[list[dict]]:
+    return [
+        requests[index : index + FFLOGS_CHARACTER_QUERY_BATCH_SIZE]
+        for index in range(0, len(requests), FFLOGS_CHARACTER_QUERY_BATCH_SIZE)
+    ]
 
 
 def build_fflogs_character_logs_query(requests: list[dict] | None = None) -> str:
@@ -2345,6 +2363,11 @@ query ($name: String, $server: String, $region: String) {{
   }}
 }}
 """
+
+
+def exception_detail(exc: BaseException) -> str:
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
 
 async def is_cn_character_server(server_name: str) -> bool:
@@ -2390,17 +2413,51 @@ async def fetch_fflogs_character_logs(
         metadata = await fetch_fflogs_metadata(host, token)
         requests = build_fflogs_character_zone_requests(metadata)
     except Exception as exc:
-        logger.info(f"FFLogs 角色查询分区 metadata 获取失败，使用默认分区: {exc}")
-    payload = await fflogs_graphql(
-        host,
-        token,
-        build_fflogs_character_logs_query(requests),
-        {"name": query.character_name, "server": query.server_name, "region": region},
-    )
-    character = payload.get("data", {}).get("characterData", {}).get("character")
-    if isinstance(character, dict):
-        character["_tataru_requests"] = requests
-    return character if isinstance(character, dict) else None
+        logger.info(f"FFLogs 角色查询分区 metadata 获取失败，使用默认分区: {exception_detail(exc)}")
+    logger.info(f"FFLogs 角色查询分区数量: {len(requests)}")
+    batches = iter_fflogs_character_request_batches(requests)
+    variables = {"name": query.character_name, "server": query.server_name, "region": region}
+    semaphore = asyncio.Semaphore(FFLOGS_CHARACTER_QUERY_CONCURRENCY)
+
+    async def fetch_batch(batch: list[dict]) -> dict | None:
+        async with semaphore:
+            payload = await fflogs_graphql(
+                host,
+                token,
+                build_fflogs_character_logs_query(batch),
+                variables,
+            )
+        character_payload = payload.get("data", {}).get("characterData", {}).get("character")
+        return character_payload if isinstance(character_payload, dict) else None
+
+    results = await asyncio.gather(*(fetch_batch(batch) for batch in batches), return_exceptions=True)
+    character: dict | None = None
+    failed_batches = []
+    for index, result in enumerate(results, start=1):
+        if isinstance(result, BaseException):
+            failed_batches.append(f"{index}/{len(batches)} {exception_detail(result)}")
+            continue
+        if result is None:
+            continue
+        if character is None:
+            character = {
+                "id": result.get("id"),
+                "name": result.get("name"),
+                "server": result.get("server"),
+            }
+        for batch_request in batches[index - 1]:
+            key = batch_request["key"]
+            if key in result:
+                character[key] = result[key]
+
+    if failed_batches:
+        logger.warning(f"FFLogs 角色查询分批失败: {'; '.join(failed_batches)}")
+    if character is None:
+        if failed_batches:
+            raise RuntimeError(f"FFLogs 角色查询全部分批失败: {'; '.join(failed_batches)}")
+        return None
+    character["_tataru_requests"] = requests
+    return character
 
 
 def fflogs_character_value(item: dict, *keys: str):
@@ -2595,8 +2652,9 @@ async def create_character_logs_text(
         try:
             character = await fetch_fflogs_character_logs(query, host, region, client_id, client_secret)
         except Exception as exc:
-            logger.warning(f"FFLogs 角色查询失败 ({source_label}): {exc}")
-            errors.append(f"{source_label}: {exc}")
+            detail = exception_detail(exc)
+            logger.warning(f"FFLogs 角色查询失败 ({source_label}): {detail}")
+            errors.append(f"{source_label}: {detail}")
             continue
         if character:
             return format_fflogs_character_logs(query, character, source_label, host, region)
@@ -3259,7 +3317,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.24",
+    "0.14.25",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
