@@ -387,6 +387,54 @@ class LogsQuery:
     day: int
 
 
+LOGS_SERVER_TOKENS = {
+    "国际服": False,
+    "国际": False,
+    "global": False,
+    "intl": False,
+    "international": False,
+    "国服": True,
+    "国": True,
+    "cn": True,
+    "china": True,
+}
+LOGS_DPS_TYPES = {"rdps", "adps", "pdps", "ndps", "cdps"}
+LOGS_BOSS_PHASE_GROUPS = [
+    {
+        "aliases": [
+            "m12s",
+            "m12s全部",
+            "林德布鲁姆",
+            "阿卡狄亚零式登天斗技场重量级4",
+            "阿卡狄亚登天斗技场零式重量级4",
+            "阿卡狄亚零式重量级4",
+            "重量级4零式",
+            "零式重量级4",
+            "lindwurm",
+        ],
+        "phase_aliases": [
+            ["门神", "前半", "p1", "phase1", "一阶段", "第一阶段"],
+            ["本体", "后半", "p2", "phase2", "二阶段", "第二阶段", "ii"],
+        ],
+        "members": [(104, 101), (105, 101)],
+    },
+    {
+        "aliases": [
+            "m12",
+            "m12全部",
+            "阿卡狄亚登天斗技场重量级4",
+            "阿卡狄亚重量级4",
+            "重量级4",
+        ],
+        "phase_aliases": [
+            ["门神", "前半", "p1", "phase1", "一阶段", "第一阶段"],
+            ["本体", "后半", "p2", "phase2", "二阶段", "第二阶段", "ii"],
+        ],
+        "members": [(104, 100), (105, 100)],
+    },
+]
+
+
 async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -1339,28 +1387,34 @@ async def create_market_text(query: MarketQuery) -> str:
 
 def parse_logs_query(query: str, default_cn_source: bool = True) -> LogsQuery:
     parts = query.split()
-    boss_name = parts[0] if len(parts) > 0 else None
-    job_name = parts[1] if len(parts) > 1 else None
     cn_source = default_cn_source
-    if any(part.lower() in {"国际服", "国际", "global", "intl", "international"} for part in parts):
-        cn_source = False
-    if any(part.lower() in {"国服", "国", "cn", "china"} for part in parts):
-        cn_source = True
     dps_type = "rdps"
+    day = -1
+    content_parts = []
     for part in parts:
         lower = part.lower()
-        if lower in {"rdps", "adps", "pdps", "ndps", "cdps"}:
+        if lower in LOGS_SERVER_TOKENS:
+            cn_source = LOGS_SERVER_TOKENS[lower]
+            continue
+        if lower in LOGS_DPS_TYPES:
             dps_type = lower
-            break
-    day = -1
-    for part in parts[2:]:
-        lower = part.lower()
+            continue
         if lower.startswith("day"):
             try:
                 day = int(lower.replace("day", "", 1)) - 1
             except ValueError:
                 day = -2
             continue
+        content_parts.append(part)
+
+    boss_name = content_parts[0] if len(content_parts) > 0 else None
+    job_name = content_parts[1] if len(content_parts) > 1 else None
+    for index in range(len(content_parts) - 1, -1, -1):
+        if find_logs_job(content_parts[index]):
+            job_name = content_parts[index]
+            boss_parts = content_parts[:index] + content_parts[index + 1 :]
+            boss_name = " ".join(boss_parts) if boss_parts else None
+            break
     return LogsQuery(boss_name, job_name, cn_source, dps_type, day)
 
 
@@ -1403,6 +1457,45 @@ def find_logs_boss(boss_name: str | None) -> dict | None:
         if any(query in name or name in query for name in names):
             return item
     return None
+
+
+def find_logs_boss_by_key(pk: int, difficulty: int) -> dict | None:
+    for item in load_json_list(BOSS_JSON):
+        try:
+            if int(item.get("pk")) == pk and int(item.get("savage")) == difficulty:
+                return item
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def find_logs_boss_group(boss_name: str | None) -> list[dict]:
+    query = normalize_logs_lookup(boss_name)
+    if not query:
+        return []
+    for group in LOGS_BOSS_PHASE_GROUPS:
+        aliases = [normalize_logs_lookup(alias) for alias in group["aliases"]]
+        if not any(alias and (query == alias or alias in query) for alias in aliases):
+            continue
+        selected_index = None
+        for phase_index, phase_aliases in enumerate(group["phase_aliases"]):
+            if any(normalize_logs_lookup(alias) in query for alias in phase_aliases):
+                selected_index = phase_index
+                break
+        members = group["members"]
+        if selected_index is not None:
+            members = [members[selected_index]]
+        bosses = [find_logs_boss_by_key(pk, difficulty) for pk, difficulty in members]
+        return [boss for boss in bosses if boss]
+    return []
+
+
+def find_logs_bosses(boss_name: str | None) -> list[dict]:
+    group = find_logs_boss_group(boss_name)
+    if group:
+        return group
+    boss = find_logs_boss(boss_name)
+    return [boss] if boss else []
 
 
 def fflogs_region_entries(boss: dict, cn_source: bool) -> list[str]:
@@ -2069,16 +2162,20 @@ async def create_logs_text(query: LogsQuery, client_id: str, client_secret: str)
     job = find_logs_job(query.job_name)
     if not job:
         return "检查职业名称是否正确"
-    boss = find_logs_boss(query.boss_name)
-    if not boss:
+    bosses = find_logs_bosses(query.boss_name)
+    if not bosses:
         try:
             boss = await find_logs_boss_metadata(query.boss_name, client_id, client_secret)
+            bosses = [boss] if boss else []
         except Exception as exc:
             logger.info(f"FFLogs metadata 动态查找失败: {exc}")
-    if not boss:
+    if not bosses:
         return "检查boss名称是否正确"
 
-    return await create_logs_text_crawl(query, boss, job)
+    results = []
+    for boss in bosses:
+        results.append(await create_logs_text_crawl(query, boss, job))
+    return "\n\n".join(results)
 
 
 def party_optional_text(value) -> str:
