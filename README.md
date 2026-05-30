@@ -153,6 +153,22 @@ logs 角色名 服务器名 国际服
 - 配置方式：在 AstrBot 插件配置页的 `font_path` 填写字体文件绝对路径。
 - 留空时：插件会自动尝试 Linux 常见字体，如 Noto Sans CJK、文泉驿等。
 
+### Cookie 必填提醒
+⚠️ **微博Cookie为必填项**，插件虽然允许在未配置 Cookie 时启动，但**必须配置 Cookie 后才能正常抓取数据**。请务必按照下方步骤获取并配置Cookie。
+
+### 如何获取微博 Cookie
+
+1. 在电脑浏览器打开 [微博移动端官网](https://m.weibo.cn/) 并登录。
+2. 按 `F12` 打开开发者工具，切换到 `网络 (Network)` 选项卡。
+3. 刷新页面，在左侧列表中找到第一个 `m.weibo.cn` 的请求（或者任何一个 `getIndex` 请求）。
+4. 在右侧的 `请求标头 (Request Headers)` 中找到 `Cookie` 字段。
+5. 复制该字段的完整值，粘贴到插件设置的 `weibo_cookie` 中。
+
+### Cookie 注意事项
+- Cookie具有有效期，失效后需要重新获取
+- 请勿在多设备同时登录同一账号，可能导致Cookie失效
+- 获取Cookie时请确保使用微博移动端官网 (m.weibo.cn)，而非PC端官网
+
 ## 项目结构
 
 ```text
