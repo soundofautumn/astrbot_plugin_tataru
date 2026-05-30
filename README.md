@@ -258,7 +258,7 @@ logs Character Name Tonberry 国际服
 - `FFLogs API Client ID`
 - `FFLogs API Client Secret`
 
-数据源：FFLogs v2 GraphQL Character API。当前实现先读取 FFLogs metadata 中的 partitions，再按 `zoneRankings(partition: ...)` 拉取最新零式和 4.x-7.x 绝本分区数据。
+数据源：FFLogs v2 GraphQL Character API。当前实现中零式按默认标准分区查询，绝境战会读取 FFLogs metadata 中的 partitions 并按 `zoneRankings(partition: ...)` 查询来源版本。
 
 ### 抽卡
 
@@ -279,6 +279,17 @@ logs Character Name Tonberry 国际服
 | `FFLogs API Client ID` | 空 | 可选。供 `输出` 在本地 boss 映射查不到时动态查询 FFLogs metadata，并供 `logs` 查询角色战绩。 |
 | `FFLogs API Client Secret` | 空 | 可选。供 `输出` 和 `logs` 获取 FFLogs OAuth token。 |
 | `默认使用国际服 FFLogs` | `false` | 控制 `输出` 和 `logs` 命令无服务器参数时默认查询国服还是国际服。 |
+| `文本转图片字体路径` | 空 | 可选。供价格、物品、房子、抽卡等图片输出使用；留空时自动尝试 Linux 系统字体，如 Noto Sans CJK、文泉驿等。 |
+
+## 发布包说明
+
+- 插件不再内置中文字体文件。需要指定字体时，可在 AstrBot 插件配置页填写字体文件路径。
+- 塔罗牌图片已压缩，仓库根目录提供 `logo.png` 用于插件展示。
+- `.gitignore` 已排除 `__pycache__`、运行缓存和虚拟环境等非发布文件。
+
+## 许可证
+
+MIT License，详见 [LICENSE](LICENSE)。
 
 ## 后续待迁移
 

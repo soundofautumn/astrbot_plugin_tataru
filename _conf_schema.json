@@ -28,5 +28,11 @@
     "type": "bool",
     "default": false,
     "hint": "关闭时“输出”和“logs”默认查询国服 FFLogs；开启后默认查询国际服。也可以在命令末尾加“国服”或“国际服”临时指定。"
+  },
+  "font_path": {
+    "description": "文本转图片字体路径",
+    "type": "string",
+    "default": "",
+    "hint": "可选。用于价格、物品、房子、抽卡等文本转图片功能。留空时会自动尝试使用 Linux 系统自带中文字体，如 Noto Sans CJK、文泉驿等。"
   }
 }

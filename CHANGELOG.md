@@ -1,5 +1,13 @@
 # 更新日志
 
+## v0.14.30
+
+### 调整
+
+- 按 AstrBot 插件市场发布要求压缩塔罗牌静态图片，移除内置中文字体文件，降低发布包体积。
+- 新增 `font_path` 配置项，允许用户在插件配置页指定字体文件；未配置时自动尝试 Linux 系统中文字体。
+- 新增插件 `logo.png`、MIT `LICENSE` 和 `.gitignore`，并将仓库地址调整为 `jawwe/astrbot_plugin_tataru`。
+
 ## v0.14.29
 
 ### 修复

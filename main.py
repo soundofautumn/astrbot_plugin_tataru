@@ -24,7 +24,16 @@ TAROT_DIR = DATA_DIR / "TarotImages"
 TAROT_JSON = TAROT_DIR / "ff14_tarot.json"
 JOB_JSON = DATA_DIR / "job.json"
 BOSS_JSON = DATA_DIR / "boss.json"
-FONT_PATH = DATA_DIR / "simhei.ttf"
+DEFAULT_FONT_PATHS = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.otf",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
 DEFAULT_CN_CALENDAR_PATH = DATA_DIR / "calendar.ics"
 CALENDAR_SOURCES = {
     "国服": {
@@ -572,9 +581,31 @@ def random_lottery() -> str:
     return "\n".join(lottery_list)
 
 
-def text_to_image(text: str, output_path: Path, width_now: int = 20) -> None:
+def resolve_text_font(configured_font_path: str | None = None) -> str | None:
+    candidates = []
+    if configured_font_path:
+        candidates.append(configured_font_path)
+    candidates.extend(DEFAULT_FONT_PATHS)
+    for candidate in candidates:
+        font_path = Path(candidate).expanduser()
+        if font_path.exists() and font_path.is_file():
+            return str(font_path)
+    return None
+
+
+def text_to_image(
+    text: str,
+    output_path: Path,
+    width_now: int = 20,
+    font_path: str | None = None,
+) -> None:
     font_size = 20
-    font = ImageFont.truetype(str(FONT_PATH), size=font_size)
+    resolved_font = resolve_text_font(font_path)
+    if resolved_font:
+        font = ImageFont.truetype(resolved_font, size=font_size)
+    else:
+        logger.warning("未找到可用中文字体，文本转图片将使用 PIL 默认字体。")
+        font = ImageFont.load_default()
 
     cursor = 0
     wrapped = ""
@@ -3332,8 +3363,8 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.29",
-    "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
+    "0.14.30",
+    "https://github.com/jawwe/astrbot_plugin_tataru",
 )
 class TataruPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -3364,6 +3395,12 @@ class TataruPlugin(Star):
 
     def default_logs_cn_source(self) -> bool:
         return not bool(self.config.get("use_global_fflogs", False))
+
+    def configured_font_path(self) -> str:
+        return str(self.config.get("font_path", "") or "").strip()
+
+    def render_text_image(self, text: str, output_path: Path, width_now: int = 20) -> None:
+        text_to_image(text, output_path, width_now=width_now, font_path=self.configured_font_path())
 
     @filter.command("帮帮忙")
     async def help(self, event: AstrMessageEvent):
@@ -3404,7 +3441,7 @@ class TataruPlugin(Star):
             return
 
         image_path = self.cache_dir / "dungeon_note.jpg"
-        text_to_image(result_text, image_path, width_now=25)
+        self.render_text_image(result_text, image_path, width_now=25)
         yield event.image_result(str(image_path))
 
     @filter.command("招募")
@@ -3457,7 +3494,7 @@ class TataruPlugin(Star):
             final_text += "────────────────────────\n"
             final_text += "\n".join(text_list[index:index + 10])
             image_path = self.cache_dir / f"party_finder_{index // 10}.jpg"
-            text_to_image(final_text, image_path, width_now=42)
+            self.render_text_image(final_text, image_path, width_now=42)
             image_components.append(Comp.Image.fromFileSystem(str(image_path)))
 
         yield event.chain_result(image_components)
@@ -3483,7 +3520,7 @@ class TataruPlugin(Star):
             return
 
         text_image_path = self.cache_dir / "item_text.jpg"
-        text_to_image(item_text, text_image_path, width_now=34)
+        self.render_text_image(item_text, text_image_path, width_now=34)
         components = []
         if icon_path:
             components.append(Comp.Image.fromFileSystem(str(icon_path)))
@@ -3506,7 +3543,7 @@ class TataruPlugin(Star):
             return
 
         image_path = self.cache_dir / "market.jpg"
-        text_to_image(market_text, image_path, width_now=42)
+        self.render_text_image(market_text, image_path, width_now=42)
         yield event.image_result(str(image_path))
 
     @filter.command("房子")
@@ -3543,7 +3580,7 @@ class TataruPlugin(Star):
         for index in range(0, len(rows), 30):
             page_text = header + "\n" + "\n".join(rows[index:index + 30])
             image_path = self.cache_dir / f"house_{index // 30}.jpg"
-            text_to_image(page_text, image_path, width_now=44)
+            self.render_text_image(page_text, image_path, width_now=44)
             components.append(Comp.Image.fromFileSystem(str(image_path)))
         yield event.chain_result(components)
 
@@ -3589,7 +3626,7 @@ class TataruPlugin(Star):
             return
 
         text_image_path = self.cache_dir / "tarot_text.jpg"
-        text_to_image(text_now, text_image_path)
+        self.render_text_image(text_now, text_image_path)
 
         yield event.chain_result(
             [
@@ -3708,7 +3745,7 @@ class TataruPlugin(Star):
                 cached_message = cache.get(str(period))
                 if cached_message:
                     image_path = self.cache_dir / "nuannuan.jpg"
-                    text_to_image(cached_message, image_path, width_now=25)
+                    self.render_text_image(cached_message, image_path, width_now=25)
                     return event.image_result(str(image_path))
             except Exception as exc:
                 logger.warning(f"读取暖暖缓存失败: {exc}")
@@ -3718,7 +3755,7 @@ class TataruPlugin(Star):
             message = await get_bili_detail(bili_url)
             cache_path.write_text(json.dumps({str(period): message}, ensure_ascii=False), encoding="utf-8")
             image_path = self.cache_dir / "nuannuan.jpg"
-            text_to_image(message, image_path, width_now=25)
+            self.render_text_image(message, image_path, width_now=25)
             return event.image_result(str(image_path))
         except Exception as exc:
             logger.warning(f"暖暖获取失败: {exc}")
