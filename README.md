@@ -192,7 +192,6 @@ astrbot_plugin_tataru/
 - [fflogsapi](https://fflogsapi.readthedocs.io/en/latest/index.html)：FFLogs API 调用方式参考。
 - [Pillow](https://python-pillow.org/)：文本转图片渲染。
 - [icalendar](https://icalendar.readthedocs.io/)：ICS 日历解析。
-- [Sakura520222/astrbot_plugin_web_analyzer](https://github.com/Sakura520222/astrbot_plugin_web_analyzer)：README 结构参考。
 
 ## 许可证
 
