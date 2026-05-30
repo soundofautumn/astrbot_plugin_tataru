@@ -2605,7 +2605,7 @@ def format_fflogs_character_record(record: dict) -> str:
     percent = record.get("percent")
     percent_text = f"{percent:.1f}%" if isinstance(percent, (int, float)) else "--"
     details = [str(record.get("job") or "未知职业")]
-    if record.get("category") in {"ultimate", "savage"} and record.get("version"):
+    if record.get("category") == "ultimate" and record.get("version"):
         details.append(f"{record['version']}记录")
     amount = record.get("amount")
     if isinstance(amount, (int, float)) and amount > 0:
@@ -3338,7 +3338,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.26",
+    "0.14.27",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
