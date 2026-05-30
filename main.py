@@ -2325,14 +2325,7 @@ def build_fflogs_character_zone_requests(metadata: dict | None = None) -> list[d
     if not metadata:
         return [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
     requests = []
-    latest_savage_zone_id = max(
-        int(item["zone_id"])
-        for item in FFLOGS_CHARACTER_BASE_ZONES
-        if item.get("type") == "savage"
-    )
     for base in FFLOGS_CHARACTER_BASE_ZONES:
-        if base.get("type") == "savage" and int(base["zone_id"]) != latest_savage_zone_id:
-            continue
         partitions = fflogs_character_zone_partitions(metadata, int(base["zone_id"]))
         if base.get("type") == "savage" and partitions:
             partitions = [partitions[-1]]
@@ -3338,7 +3331,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.27",
+    "0.14.28",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
