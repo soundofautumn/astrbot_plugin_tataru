@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](metadata.yaml)
 [![AstrBot](https://img.shields.io/badge/AstrBot-plugin-7c3aed.svg)](https://github.com/Soulter/AstrBot)
 
-面向 Final Fantasy XIV 国服玩家的 AstrBot 插件，提供时尚品鉴、活动日历、副本攻略、招募板、微博资讯、物品资料、市场价格、房屋空房、FFLogs 输出分位、角色 Logs 和塔罗抽卡等查询功能。
+面向 Final Fantasy XIV 国服/国际服玩家的 AstrBot 插件，提供时尚品鉴、活动日历、副本攻略、招募板、微博资讯、物品资料、市场价格、房屋空房、FFLogs 输出分位、角色 Logs 和塔罗抽卡等查询功能。
 
 ## 功能特性
 
@@ -172,12 +172,6 @@ astrbot_plugin_tataru/
     ├── calendar.ics
     └── TarotImages/
 ```
-
-## 发布包说明
-
-- 塔罗牌静态图片已压缩。
-- 仓库不包含运行缓存、`__pycache__`、虚拟环境和内置字体。
-- 发布包估算 zip 体积约 `2.38MB`。
 
 ## 数据源与参考项目
 
