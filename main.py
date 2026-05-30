@@ -2326,9 +2326,10 @@ def build_fflogs_character_zone_requests(metadata: dict | None = None) -> list[d
         return [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
     requests = []
     for base in FFLOGS_CHARACTER_BASE_ZONES:
+        if base.get("type") == "savage":
+            requests.append(dict(base))
+            continue
         partitions = fflogs_character_zone_partitions(metadata, int(base["zone_id"]))
-        if base.get("type") == "savage" and partitions:
-            partitions = [partitions[-1]]
         if not partitions:
             requests.append(dict(base))
             continue
@@ -3331,7 +3332,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.28",
+    "0.14.29",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
