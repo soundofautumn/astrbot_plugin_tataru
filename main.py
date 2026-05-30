@@ -424,6 +424,9 @@ FFLOGS_CHARACTER_BASE_ZONES = [
 FFLOGS_CHARACTER_ZONE_REQUESTS = [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
 FFLOGS_CHARACTER_QUERY_BATCH_SIZE = 8
 FFLOGS_CHARACTER_QUERY_CONCURRENCY = 3
+FFLOGS_CHARACTER_PARTITION_VERSION_OVERRIDES = {
+    (30, 3): "5.4",
+}
 FFLOGS_CHARACTER_SHORT_LABELS = {
     93: "M1S",
     94: "M2S",
@@ -2283,6 +2286,19 @@ def fflogs_character_partition_label(partition: dict) -> str:
     return str(partition.get("compactName") or partition.get("name") or partition.get("id") or "").strip()
 
 
+def fflogs_character_partition_version(zone_id: int, partition_id: int, label: str, fallback: str | None = None) -> str:
+    override = FFLOGS_CHARACTER_PARTITION_VERSION_OVERRIDES.get((zone_id, partition_id))
+    if override:
+        return override
+    match = re.search(r"(\d+(?:\.\d+)?)", label or "")
+    if match:
+        return match.group(1)
+    label_key = normalize_logs_lookup(label or "")
+    if label_key in {"standard", "标准"}:
+        return fallback or label
+    return label or fallback or str(partition_id)
+
+
 def fflogs_character_zone_partitions(metadata: dict, zone_id: int) -> list[tuple[int, str]]:
     zone = fflogs_zone_by_id(metadata).get(zone_id)
     if not isinstance(zone, dict):
@@ -2326,7 +2342,12 @@ def build_fflogs_character_zone_requests(metadata: dict | None = None) -> list[d
         for partition_id, label in partitions:
             item = dict(base)
             item["partition"] = partition_id
-            item["version"] = label
+            item["version"] = fflogs_character_partition_version(
+                int(base["zone_id"]),
+                partition_id,
+                label,
+                str(base.get("version") or ""),
+            )
             item["partition_order"] = partition_id
             item["key"] = f"{base['key']}_p{partition_id}"
             requests.append(item)
@@ -3317,7 +3338,7 @@ async def get_party_finder_texts(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "0.14.25",
+    "0.14.26",
     "https://github.com/jawwe/TataruBot2/tree/codex-astrbot-plugin-tataru",
 )
 class TataruPlugin(Star):
