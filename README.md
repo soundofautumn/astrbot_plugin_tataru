@@ -197,7 +197,7 @@ astrbot_plugin_tataru/
 
 ## 数据源与参考项目
 
-- [AstrBot](https://github.com/Soulter/AstrBot)：插件运行框架。
+- [AstrBot](https://github.com/AstrBotDevs/AstrBot)：插件运行框架。
 - [Soulter/helloworld](https://github.com/Soulter/helloworld)：AstrBot 插件结构参考模板。
 - [TataruBot2](https://github.com/aaron-lii/TataruBot2)：原始功能来源。
 - [remote-party-finder](https://github.com/LittleNightmare/remote-party-finder)：招募板 API 数据源。
