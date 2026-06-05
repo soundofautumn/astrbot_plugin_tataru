@@ -38,6 +38,12 @@ PLUGIN_VERSION = load_plugin_version()
 PLUGIN_USER_AGENT = (
     f"{PLUGIN_NAME} {PLUGIN_VERSION} / {PLUGIN_AUTHOR} <{PLUGIN_CONTACT}>"
 )
+BROWSER_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Edge/125.0 Safari/537.36",
+]
 DATA_DIR = PLUGIN_DIR / "data"
 TAROT_DIR = DATA_DIR / "TarotImages"
 TAROT_JSON = TAROT_DIR / "ff14_tarot.json"
@@ -650,13 +656,28 @@ def api_request_headers(headers: dict | None = None) -> dict:
     return request_headers
 
 
+def browser_request_headers(headers: dict | None = None) -> dict:
+    request_headers = {
+        "Connection": "close",
+        "User-Agent": random.choice(BROWSER_USER_AGENTS),
+    }
+    if headers:
+        request_headers.update(headers)
+    return request_headers
+
+
 async def aiohttp_get(
     url: str,
     res_type: str = "json",
     timeout_seconds: int = 15,
     headers: dict | None = None,
+    use_api_user_agent: bool = False,
 ):
-    request_headers = api_request_headers(headers)
+    request_headers = (
+        api_request_headers(headers)
+        if use_api_user_agent
+        else browser_request_headers(headers)
+    )
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     async with aiohttp.ClientSession(
@@ -1338,27 +1359,32 @@ def is_pinned_weibo_card(card: dict, mblog: dict) -> bool:
 
 
 def get_weibo_headers(cookie: str | None = None, uid: str = WEIBO_UID) -> dict:
-    headers = api_request_headers(
-        {
-            "Accept": "application/json, text/plain, */*",
-            "Referer": f"{WEIBO_MOBILE_BASE}/u/{uid}",
-            "MWeibo-Pwa": "1",
-            "X-Requested-With": "XMLHttpRequest",
-        }
-    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
+            "Mobile/15E148 Safari/604.1"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": f"{WEIBO_MOBILE_BASE}/u/{uid}",
+        "MWeibo-Pwa": "1",
+        "X-Requested-With": "XMLHttpRequest",
+    }
     if cookie:
         headers["Cookie"] = cookie
     return headers
 
 
 def get_weibo_web_headers(cookie: str | None = None, uid: str = WEIBO_UID) -> dict:
-    headers = api_request_headers(
-        {
-            "Accept": "application/json, text/plain, */*",
-            "Referer": f"{WEIBO_WEB_BASE}/u/{uid}",
-            "X-Requested-With": "XMLHttpRequest",
-        }
-    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": f"{WEIBO_WEB_BASE}/u/{uid}",
+        "X-Requested-With": "XMLHttpRequest",
+    }
     if cookie:
         headers["Cookie"] = cookie
     return headers
@@ -1719,7 +1745,9 @@ def strip_xiv_tags(text: str) -> str:
 async def garland_core_value(path: str):
     global GARLAND_CORE_DATA
     if GARLAND_CORE_DATA is None:
-        GARLAND_CORE_DATA = await aiohttp_get(garland_url("core", "data"))
+        GARLAND_CORE_DATA = await aiohttp_get(
+            garland_url("core", "data"), use_api_user_agent=True
+        )
     value = GARLAND_CORE_DATA
     for part in path.split("."):
         value = value[part]
@@ -1746,7 +1774,9 @@ async def search_xivapi_item_id(name: str) -> tuple[int | None, str | None]:
             "limit": 8,
         }
     )
-    payload = await aiohttp_get(f"{XIVAPI_BASE_URL}/search?{params}")
+    payload = await aiohttp_get(
+        f"{XIVAPI_BASE_URL}/search?{params}", use_api_user_agent=True
+    )
     results = payload.get("results") if isinstance(payload, dict) else None
     if not isinstance(results, list):
         return None, None
@@ -1797,7 +1827,7 @@ def format_garland_node(node: dict) -> str:
 
 
 async def parse_item_garland(item_id: int) -> tuple[str, dict]:
-    payload = await aiohttp_get(garland_url("item", item_id))
+    payload = await aiohttp_get(garland_url("item", item_id), use_api_user_agent=True)
     if not isinstance(payload, dict) or "item" not in payload:
         raise ValueError("Garland 物品详情为空")
 
@@ -2014,7 +2044,7 @@ async def fetch_market_listings(
 ) -> tuple[dict | None, str]:
     params = urlencode({"listings": fetch_limit, "entries": 0})
     url = f"https://universalis.app/api/v2/{quote(location)}/{item_id}?{params}"
-    payload = await aiohttp_get(url)
+    payload = await aiohttp_get(url, use_api_user_agent=True)
     if not isinstance(payload, dict):
         return None, location
     return payload, location
@@ -3641,7 +3671,9 @@ async def get_xivapi_sheet_rows(
             "language": "chs",
         }
     )
-    payload = await aiohttp_get(f"{XIVAPI_BASE_URL}/sheet/{sheet}?{params}")
+    payload = await aiohttp_get(
+        f"{XIVAPI_BASE_URL}/sheet/{sheet}?{params}", use_api_user_agent=True
+    )
     if not isinstance(payload, dict):
         return {}
 
@@ -3671,7 +3703,10 @@ async def load_cn_world_names() -> dict[str, dict]:
         }
         if after is not None:
             query["after"] = after
-        payload = await aiohttp_get(f"{XIVAPI_BASE_URL}/sheet/World?{urlencode(query)}")
+        payload = await aiohttp_get(
+            f"{XIVAPI_BASE_URL}/sheet/World?{urlencode(query)}",
+            use_api_user_agent=True,
+        )
         rows = payload.get("rows") if isinstance(payload, dict) else None
         if not isinstance(rows, list) or not rows:
             break
@@ -3846,7 +3881,7 @@ def format_house_time(timestamp_value) -> str:
 
 async def fetch_house_sales(server_id: int) -> list[dict] | None:
     query = urlencode({"server": server_id, "ts": int(datetime.now().timestamp())})
-    payload = await aiohttp_get(f"{HOUSE_API_URL}?{query}")
+    payload = await aiohttp_get(f"{HOUSE_API_URL}?{query}", use_api_user_agent=True)
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     return None
@@ -4020,7 +4055,9 @@ async def get_party_finder_entries_api_v1(
         params["search"] = search_text
     if job_ids:
         params["jobs"] = ",".join(str(job_id) for job_id in job_ids)
-    payload = await aiohttp_get(f"{PARTY_FINDER_API_V1_URL}?{urlencode(params)}")
+    payload = await aiohttp_get(
+        f"{PARTY_FINDER_API_V1_URL}?{urlencode(params)}", use_api_user_agent=True
+    )
     listings = extract_party_finder_listings(payload)
     if listings is None:
         return None
@@ -4069,7 +4106,10 @@ async def get_party_finder_entries_api_v2(
     listings = []
     seen_ids = set()
     for param_set in param_sets:
-        payload = await aiohttp_get(f"{PARTY_FINDER_API_V2_URL}?{urlencode(param_set)}")
+        payload = await aiohttp_get(
+            f"{PARTY_FINDER_API_V2_URL}?{urlencode(param_set)}",
+            use_api_user_agent=True,
+        )
         payload_listings = extract_party_finder_listings(payload)
         if payload_listings is None:
             return None
