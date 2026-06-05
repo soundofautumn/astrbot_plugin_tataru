@@ -19,6 +19,25 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 PLUGIN_DIR = Path(__file__).resolve().parent
+PLUGIN_NAME = "astrbot_plugin_tataru"
+PLUGIN_AUTHOR = "jawwe"
+PLUGIN_CONTACT = "lyjawwe@gmail.com"
+
+
+def load_plugin_version() -> str:
+    metadata_path = PLUGIN_DIR / "metadata.yaml"
+    try:
+        metadata_text = metadata_path.read_text(encoding="utf-8")
+    except OSError:
+        return "unknown"
+    match = re.search(r"^version:\s*v?(.+?)\s*$", metadata_text, flags=re.M)
+    return match.group(1) if match else "unknown"
+
+
+PLUGIN_VERSION = load_plugin_version()
+PLUGIN_USER_AGENT = (
+    f"{PLUGIN_NAME} {PLUGIN_VERSION} / {PLUGIN_AUTHOR} <{PLUGIN_CONTACT}>"
+)
 DATA_DIR = PLUGIN_DIR / "data"
 TAROT_DIR = DATA_DIR / "TarotImages"
 TAROT_JSON = TAROT_DIR / "ff14_tarot.json"
@@ -422,18 +441,102 @@ LOGS_SERVER_TOKENS = {
 LOGS_DPS_TYPES = {"rdps", "adps", "pdps", "ndps", "cdps"}
 FFLOGS_GLOBAL_CHARACTER_REGIONS = ["JP", "NA", "EU", "OC"]
 FFLOGS_CHARACTER_BASE_ZONES = [
-    {"key": "arcadion_light", "zone_id": 62, "difficulty": 101, "type": "savage", "version": "7.x", "order": 70},
-    {"key": "arcadion_cruiser", "zone_id": 68, "difficulty": 101, "type": "savage", "version": "7.x", "order": 70},
-    {"key": "arcadion_heavy", "zone_id": 73, "difficulty": 101, "type": "savage", "version": "7.x", "order": 70},
-    {"key": "ultimate_70_future", "zone_id": 65, "difficulty": None, "type": "ultimate", "version": "7.x", "order": 70},
-    {"key": "ultimate_70_legacy", "zone_id": 59, "difficulty": None, "type": "ultimate", "version": "7.x", "order": 70},
-    {"key": "ultimate_60_top", "zone_id": 53, "difficulty": None, "type": "ultimate", "version": "6.x", "order": 60},
-    {"key": "ultimate_60_dsr", "zone_id": 45, "difficulty": None, "type": "ultimate", "version": "6.x", "order": 60},
-    {"key": "ultimate_60_legacy", "zone_id": 43, "difficulty": None, "type": "ultimate", "version": "6.x", "order": 60},
-    {"key": "ultimate_50_tea", "zone_id": 32, "difficulty": None, "type": "ultimate", "version": "5.x", "order": 50},
-    {"key": "ultimate_50_legacy", "zone_id": 30, "difficulty": None, "type": "ultimate", "version": "5.x", "order": 50},
-    {"key": "ultimate_40_uwu", "zone_id": 23, "difficulty": None, "type": "ultimate", "version": "4.x", "order": 40},
-    {"key": "ultimate_40_ucob", "zone_id": 19, "difficulty": None, "type": "ultimate", "version": "4.x", "order": 40},
+    {
+        "key": "arcadion_light",
+        "zone_id": 62,
+        "difficulty": 101,
+        "type": "savage",
+        "version": "7.x",
+        "order": 70,
+    },
+    {
+        "key": "arcadion_cruiser",
+        "zone_id": 68,
+        "difficulty": 101,
+        "type": "savage",
+        "version": "7.x",
+        "order": 70,
+    },
+    {
+        "key": "arcadion_heavy",
+        "zone_id": 73,
+        "difficulty": 101,
+        "type": "savage",
+        "version": "7.x",
+        "order": 70,
+    },
+    {
+        "key": "ultimate_70_future",
+        "zone_id": 65,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "7.x",
+        "order": 70,
+    },
+    {
+        "key": "ultimate_70_legacy",
+        "zone_id": 59,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "7.x",
+        "order": 70,
+    },
+    {
+        "key": "ultimate_60_top",
+        "zone_id": 53,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "6.x",
+        "order": 60,
+    },
+    {
+        "key": "ultimate_60_dsr",
+        "zone_id": 45,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "6.x",
+        "order": 60,
+    },
+    {
+        "key": "ultimate_60_legacy",
+        "zone_id": 43,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "6.x",
+        "order": 60,
+    },
+    {
+        "key": "ultimate_50_tea",
+        "zone_id": 32,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "5.x",
+        "order": 50,
+    },
+    {
+        "key": "ultimate_50_legacy",
+        "zone_id": 30,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "5.x",
+        "order": 50,
+    },
+    {
+        "key": "ultimate_40_uwu",
+        "zone_id": 23,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "4.x",
+        "order": 40,
+    },
+    {
+        "key": "ultimate_40_ucob",
+        "zone_id": 19,
+        "difficulty": None,
+        "type": "ultimate",
+        "version": "4.x",
+        "order": 40,
+    },
 ]
 FFLOGS_CHARACTER_ZONE_REQUESTS = [dict(item) for item in FFLOGS_CHARACTER_BASE_ZONES]
 FFLOGS_CHARACTER_QUERY_BATCH_SIZE = 8
@@ -533,22 +636,32 @@ LOGS_BOSS_PHASE_GROUPS = [
 ]
 
 
-async def aiohttp_get(url: str, res_type: str = "json", timeout_seconds: int = 15, headers: dict | None = None):
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/125.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Edge/125.0 Safari/537.36",
-    ]
+def api_request_headers(headers: dict | None = None) -> dict:
     request_headers = {
         "Connection": "close",
-        "User-Agent": random.choice(user_agents),
+        "User-Agent": PLUGIN_USER_AGENT,
     }
     if headers:
         request_headers.update(headers)
+    for key in list(request_headers):
+        if key.lower() == "user-agent":
+            del request_headers[key]
+    request_headers["User-Agent"] = PLUGIN_USER_AGENT
+    return request_headers
+
+
+async def aiohttp_get(
+    url: str,
+    res_type: str = "json",
+    timeout_seconds: int = 15,
+    headers: dict | None = None,
+):
+    request_headers = api_request_headers(headers)
 
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-    async with aiohttp.ClientSession(timeout=timeout, headers=request_headers) as session:
+    async with aiohttp.ClientSession(
+        timeout=timeout, headers=request_headers
+    ) as session:
         async with session.get(url) as response:
             if response.status != 200:
                 return None
@@ -681,7 +794,10 @@ def text_bbox_size(draw: ImageDraw.ImageDraw, text: str, font) -> tuple[int, int
 
 
 def mixed_text_width(draw: ImageDraw.ImageDraw, text: str, text_font, icon_font) -> int:
-    return sum(text_bbox_size(draw, char, mixed_char_font(char, text_font, icon_font))[0] for char in text)
+    return sum(
+        text_bbox_size(draw, char, mixed_char_font(char, text_font, icon_font))[0]
+        for char in text
+    )
 
 
 def draw_mixed_text(
@@ -721,7 +837,10 @@ def wrap_mixed_text(
             line = ""
         else:
             candidate = line + char
-            if line and mixed_text_width(draw, candidate, text_font, icon_font) > max_width:
+            if (
+                line
+                and mixed_text_width(draw, candidate, text_font, icon_font) > max_width
+            ):
                 lines.append(line)
                 line = char
             else:
@@ -737,7 +856,11 @@ def wrap_mixed_text(
         lines = lines[:max_lines]
         truncated = True
     if truncated and lines:
-        while lines[-1] and mixed_text_width(draw, lines[-1] + "...", text_font, icon_font) > max_width:
+        while (
+            lines[-1]
+            and mixed_text_width(draw, lines[-1] + "...", text_font, icon_font)
+            > max_width
+        ):
             lines[-1] = lines[-1][:-1]
         lines[-1] += "..."
     return lines
@@ -784,7 +907,9 @@ def get_party_category_label(listing: dict) -> str:
     category_id = listing.get("category_id")
     if not category_now and category_id is not None:
         try:
-            return PARTY_CATEGORY_ID_LABELS.get(int(category_id), f"分类ID {category_id}")
+            return PARTY_CATEGORY_ID_LABELS.get(
+                int(category_id), f"分类ID {category_id}"
+            )
         except (TypeError, ValueError):
             return f"分类ID {category_id}"
     return PARTY_CATEGORY_LABELS.get(category_now, category_now or "未知分类")
@@ -799,14 +924,18 @@ def get_party_people_text(listing: dict) -> str:
     available = listing.get("slots_available")
     if filled is not None and available is not None:
         try:
-            return f"{int(filled)}/{int(filled) + int(available)}"
+            return f"{int(filled)}/{int(available)}"
         except (TypeError, ValueError):
             return f"{filled}/{available}"
     return ""
 
 
 def normalize_party_finder_entry(index: int, listing: dict) -> dict:
-    home_world = party_optional_text(listing.get("home_world") or listing.get("world") or listing.get("created_world"))
+    home_world = party_optional_text(
+        listing.get("home_world")
+        or listing.get("world")
+        or listing.get("created_world")
+    )
     created_world = party_optional_text(listing.get("created_world") or home_world)
     if not home_world:
         world_id = listing.get("home_world_id") or listing.get("created_world_id")
@@ -815,7 +944,11 @@ def normalize_party_finder_entry(index: int, listing: dict) -> dict:
         world_id = listing.get("created_world_id") or listing.get("home_world_id")
         created_world = f"世界ID {world_id}" if world_id else home_world
 
-    datacenter = party_optional_text(listing.get("datacenter") or listing.get("data_centre") or listing.get("data_center"))
+    datacenter = party_optional_text(
+        listing.get("datacenter")
+        or listing.get("data_centre")
+        or listing.get("data_center")
+    )
     item_level = party_optional_text(listing.get("min_item_level"))
     duty = party_optional_text(listing.get("duty")) or "无"
     if item_level and item_level != "0":
@@ -823,7 +956,10 @@ def normalize_party_finder_entry(index: int, listing: dict) -> dict:
 
     return {
         "index": index,
-        "creator": party_optional_text(listing.get("name") or listing.get("player_name")) or "未知",
+        "creator": party_optional_text(
+            listing.get("name") or listing.get("player_name")
+        )
+        or "未知",
         "home_world": home_world,
         "created_world": created_world,
         "datacenter": datacenter or "未知大区",
@@ -831,9 +967,15 @@ def normalize_party_finder_entry(index: int, listing: dict) -> dict:
         "duty": duty,
         "description": party_optional_text(listing.get("description")) or "无招募说明",
         "people": get_party_people_text(listing) or "?/?",
-        "time_left": format_party_card_time_left(listing.get("time_left") or listing.get("time_left_seconds")),
-        "updated": format_party_updated_at(party_optional_text(listing.get("updated_at"))),
-        "is_cross_world": bool(created_world and home_world and created_world != home_world),
+        "time_left": format_party_card_time_left(
+            listing.get("time_left") or listing.get("time_left_seconds")
+        ),
+        "updated": format_party_updated_at(
+            party_optional_text(listing.get("updated_at"))
+        ),
+        "is_cross_world": bool(
+            created_world and home_world and created_world != home_world
+        ),
     }
 
 
@@ -852,9 +994,20 @@ def draw_party_card_row(
     value_color = (45, 45, 52)
     draw_mixed_text(draw, (x, y), label, label_font, icon_font, label_color)
     label_w = mixed_text_width(draw, label, label_font, icon_font)
-    end_x = draw_mixed_text(draw, (x + label_w + 8, y), value, value_font, icon_font, value_color)
+    end_x = draw_mixed_text(
+        draw, (x + label_w + 8, y), value, value_font, icon_font, value_color
+    )
     if badge:
-        draw_pill(draw, (end_x + 14, y - 3), badge, value_font, (242, 114, 57), (255, 255, 255), 9, 4)
+        draw_pill(
+            draw,
+            (end_x + 14, y - 3),
+            badge,
+            value_font,
+            (242, 114, 57),
+            (255, 255, 255),
+            9,
+            4,
+        )
 
 
 def render_party_finder_cards(
@@ -886,10 +1039,19 @@ def render_party_finder_cards(
         card = (card_x, y, card_x + card_w, y + card_h)
         draw.rounded_rectangle(shadow, radius=14, fill=(224, 226, 232))
         draw.rounded_rectangle(card, radius=14, fill=(255, 255, 255))
-        draw.rounded_rectangle((card_x, y, card_x + card_w, y + 66), radius=14, fill=(91, 96, 216))
+        draw.rounded_rectangle(
+            (card_x, y, card_x + card_w, y + 66), radius=14, fill=(91, 96, 216)
+        )
         draw.rectangle((card_x, y + 48, card_x + card_w, y + 66), fill=(91, 96, 216))
 
-        draw_mixed_text(draw, (card_x + 24, y + 18), entry["creator"], title_font, icon_font, (255, 255, 255))
+        draw_mixed_text(
+            draw,
+            (card_x + 24, y + 18),
+            entry["creator"],
+            title_font,
+            icon_font,
+            (255, 255, 255),
+        )
         time_text = entry.get("time_left") or ""
         if time_text:
             badge_w = text_bbox_size(draw, time_text, body_font)[0] + 30
@@ -907,7 +1069,16 @@ def render_party_finder_cards(
         body_x = card_x + 24
         row_y = y + 96
         row_gap = 32
-        draw_party_card_row(draw, body_x, row_y, "所属服务器：", entry["home_world"], label_font, body_font, icon_font)
+        draw_party_card_row(
+            draw,
+            body_x,
+            row_y,
+            "所属服务器：",
+            entry["home_world"],
+            label_font,
+            body_font,
+            icon_font,
+        )
         draw_party_card_row(
             draw,
             body_x,
@@ -919,21 +1090,63 @@ def render_party_finder_cards(
             icon_font,
             "跨服招募" if entry.get("is_cross_world") else None,
         )
-        draw_party_card_row(draw, body_x, row_y + row_gap * 2, "大区：", entry["datacenter"], label_font, body_font, icon_font)
-        draw_party_card_row(draw, body_x, row_y + row_gap * 3, "类别：", entry["category"], label_font, body_font, icon_font)
-        draw_party_card_row(draw, body_x, row_y + row_gap * 4, "任务：", entry["duty"], label_font, body_font, icon_font)
+        draw_party_card_row(
+            draw,
+            body_x,
+            row_y + row_gap * 2,
+            "大区：",
+            entry["datacenter"],
+            label_font,
+            body_font,
+            icon_font,
+        )
+        draw_party_card_row(
+            draw,
+            body_x,
+            row_y + row_gap * 3,
+            "类别：",
+            entry["category"],
+            label_font,
+            body_font,
+            icon_font,
+        )
+        draw_party_card_row(
+            draw,
+            body_x,
+            row_y + row_gap * 4,
+            "任务：",
+            entry["duty"],
+            label_font,
+            body_font,
+            icon_font,
+        )
 
         people_text = entry.get("people") or "?/?"
         people_x = card_x + card_w - 124
-        draw.text((people_x + 10, y + 148), people_text, font=people_font, fill=(42, 42, 48))
+        draw.text(
+            (people_x + 10, y + 148), people_text, font=people_font, fill=(42, 42, 48)
+        )
         draw.text((people_x + 28, y + 193), "人数", font=small_font, fill=(88, 88, 94))
 
         divider_y = y + 254
-        draw.line((card_x + 24, divider_y, card_x + card_w - 24, divider_y), fill=(226, 226, 230), width=1)
+        draw.line(
+            (card_x + 24, divider_y, card_x + card_w - 24, divider_y),
+            fill=(226, 226, 230),
+            width=1,
+        )
         draw.text((body_x, y + 272), "招募说明：", font=label_font, fill=(91, 96, 216))
-        desc_lines = wrap_mixed_text(draw, entry.get("description") or "", card_w - 48, body_font, icon_font, 2)
+        desc_lines = wrap_mixed_text(
+            draw, entry.get("description") or "", card_w - 48, body_font, icon_font, 2
+        )
         for line_index, line in enumerate(desc_lines):
-            draw_mixed_text(draw, (body_x, y + 306 + line_index * 28), line, body_font, icon_font, (102, 102, 108))
+            draw_mixed_text(
+                draw,
+                (body_x, y + 306 + line_index * 28),
+                line,
+                body_font,
+                icon_font,
+                (102, 102, 108),
+            )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(output_path, format="JPEG", quality=90)
@@ -977,8 +1190,12 @@ def create_help_text() -> str:
 
 
 def format_calendar_item(info_item: list) -> str:
-    end_info = str(info_item[0]).strip().split("+", 1)[0].rsplit(":", 1)[0].replace("-", ".")
-    start_info = str(info_item[1]).strip().split("+", 1)[0].rsplit(":", 1)[0].replace("-", ".")
+    end_info = (
+        str(info_item[0]).strip().split("+", 1)[0].rsplit(":", 1)[0].replace("-", ".")
+    )
+    start_info = (
+        str(info_item[1]).strip().split("+", 1)[0].rsplit(":", 1)[0].replace("-", ".")
+    )
     summary_info = str(info_item[2]).strip()
     return "* " + summary_info + "\n  " + start_info + " 至 " + end_info
 
@@ -993,7 +1210,16 @@ def normalize_calendar_server(value: str | None, default_server: str = "国服")
     if not value:
         return default_server
     value = value.strip().lower()
-    if value in {"国际服", "国际", "global", "intl", "international", "gaia", "mana", "elemental"}:
+    if value in {
+        "国际服",
+        "国际",
+        "global",
+        "intl",
+        "international",
+        "gaia",
+        "mana",
+        "elemental",
+    }:
         return "国际服"
     if value in {"国服", "国", "cn", "china", "陆行鸟", "莫古力", "猫小胖", "豆豆柴"}:
         return "国服"
@@ -1005,7 +1231,7 @@ def command_args(message: str, command: str) -> str:
     if message == command:
         return ""
     if message.startswith(command):
-        return message[len(command):].strip()
+        return message[len(command) :].strip()
     return message
 
 
@@ -1085,7 +1311,7 @@ def truncate_text(text: str, length: int = 80) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= length:
         return text
-    return text[:length - 1] + "…"
+    return text[: length - 1] + "…"
 
 
 def clean_weibo_title(text: str) -> str:
@@ -1112,42 +1338,41 @@ def is_pinned_weibo_card(card: dict, mblog: dict) -> bool:
 
 
 def get_weibo_headers(cookie: str | None = None, uid: str = WEIBO_UID) -> dict:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
-            "Mobile/15E148 Safari/604.1"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": f"{WEIBO_MOBILE_BASE}/u/{uid}",
-        "MWeibo-Pwa": "1",
-        "X-Requested-With": "XMLHttpRequest",
-    }
+    headers = api_request_headers(
+        {
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"{WEIBO_MOBILE_BASE}/u/{uid}",
+            "MWeibo-Pwa": "1",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+    )
     if cookie:
         headers["Cookie"] = cookie
     return headers
 
 
 def get_weibo_web_headers(cookie: str | None = None, uid: str = WEIBO_UID) -> dict:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/125.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-        "Referer": f"{WEIBO_WEB_BASE}/u/{uid}",
-        "X-Requested-With": "XMLHttpRequest",
-    }
+    headers = api_request_headers(
+        {
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"{WEIBO_WEB_BASE}/u/{uid}",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+    )
     if cookie:
         headers["Cookie"] = cookie
     return headers
 
 
-async def fetch_weibo_cards(cookie: str | None = None, uid: str = WEIBO_UID) -> list[dict]:
+async def fetch_weibo_cards(
+    cookie: str | None = None, uid: str = WEIBO_UID
+) -> list[dict]:
     params = urlencode({"type": "uid", "value": uid, "containerid": f"107603{uid}"})
     url = f"{WEIBO_API_BASE}?{params}"
     timeout = aiohttp.ClientTimeout(total=20)
-    async with aiohttp.ClientSession(timeout=timeout, headers=get_weibo_headers(cookie, uid)) as session:
+    async with aiohttp.ClientSession(
+        timeout=timeout, headers=get_weibo_headers(cookie, uid)
+    ) as session:
         async with session.get(url) as response:
             if response.status != 200:
                 logger.warning(f"微博接口请求失败，状态码：{response.status}")
@@ -1165,11 +1390,15 @@ async def fetch_weibo_cards(cookie: str | None = None, uid: str = WEIBO_UID) -> 
     return cards if isinstance(cards, list) else []
 
 
-async def fetch_weibo_web_statuses(cookie: str | None = None, uid: str = WEIBO_UID) -> list[dict]:
+async def fetch_weibo_web_statuses(
+    cookie: str | None = None, uid: str = WEIBO_UID
+) -> list[dict]:
     params = urlencode({"uid": uid, "page": 1, "feature": 0})
     url = f"{WEIBO_WEB_TIMELINE_API}?{params}"
     timeout = aiohttp.ClientTimeout(total=20)
-    async with aiohttp.ClientSession(timeout=timeout, headers=get_weibo_web_headers(cookie, uid)) as session:
+    async with aiohttp.ClientSession(
+        timeout=timeout, headers=get_weibo_web_headers(cookie, uid)
+    ) as session:
         async with session.get(url) as response:
             if response.status != 200:
                 logger.warning(f"微博网页端接口请求失败，状态码：{response.status}")
@@ -1213,7 +1442,14 @@ def extract_valid_weibo_web_statuses(statuses: list[dict]) -> list[dict]:
             continue
         title = status.get("title")
         title_text = title.get("text") if isinstance(title, dict) else ""
-        if any([status.get("isTop"), status.get("is_top"), status.get("top"), title_text == "置顶"]):
+        if any(
+            [
+                status.get("isTop"),
+                status.get("is_top"),
+                status.get("top"),
+                title_text == "置顶",
+            ]
+        ):
             continue
         if not (status.get("mblogid") or status.get("bid")):
             continue
@@ -1261,7 +1497,10 @@ async def get_ff_weibo_text(cookie: str | None = None, limit: int = 5) -> str:
 
     if not statuses:
         return "没有获取到最新微博，可能是微博接口结构变化或需要配置微博 Cookie。"
-    return "\n".join(format_weibo_status(index, item) for index, item in enumerate(statuses[:limit], start=1))
+    return "\n".join(
+        format_weibo_status(index, item)
+        for index, item in enumerate(statuses[:limit], start=1)
+    )
 
 
 def find_bili_url_in_text(text: str) -> str | None:
@@ -1341,22 +1580,34 @@ async def get_bili_url() -> str:
         "https://api.bilibili.com/x/web-interface/search/type?"
         f"search_type=video&keyword={quote(prefix)}&page=1"
     )
-    search_data = await aiohttp_get(search_url, headers={"referer": "https://search.bilibili.com/"})
+    search_data = await aiohttp_get(
+        search_url, headers={"referer": "https://search.bilibili.com/"}
+    )
     if search_data and search_data.get("code") == 0:
         videos = search_data.get("data", {}).get("result", [])
         for video in videos:
             title = re.sub(r"<.*?>", "", str(video.get("title", "")))
             author = str(video.get("author", ""))
             bvid = video.get("bvid")
-            if title.startswith(prefix) and bvid and ("游玩C哩酱" in author or not author):
+            if (
+                title.startswith(prefix)
+                and bvid
+                and ("游玩C哩酱" in author or not author)
+            ):
                 result = f"https://www.bilibili.com/video/{bvid}"
                 logger.info(f"从bilibili搜索获取暖暖视频链接: {result}")
                 return result
     elif search_data:
-        logger.warning(f"bilibili搜索接口返回异常: code={search_data.get('code')} message={search_data.get('message')}")
+        logger.warning(
+            f"bilibili搜索接口返回异常: code={search_data.get('code')} message={search_data.get('message')}"
+        )
 
-    api_url = f"https://api.bilibili.com/x/space/arc/search?mid={BILI_USER_ID}&ps=10&pn=1"
-    data = await aiohttp_get(api_url, headers={"referer": f"https://space.bilibili.com/{BILI_USER_ID}"})
+    api_url = (
+        f"https://api.bilibili.com/x/space/arc/search?mid={BILI_USER_ID}&ps=10&pn=1"
+    )
+    data = await aiohttp_get(
+        api_url, headers={"referer": f"https://space.bilibili.com/{BILI_USER_ID}"}
+    )
     if data and data.get("code") == 0:
         videos = data.get("data", {}).get("list", {}).get("vlist", [])
         for video in videos:
@@ -1365,13 +1616,17 @@ async def get_bili_url() -> str:
                 logger.info(f"从bilibili空间接口获取暖暖视频链接: {result}")
                 return result
     elif data:
-        logger.warning(f"bilibili空间接口返回异常: code={data.get('code')} message={data.get('message')}")
+        logger.warning(
+            f"bilibili空间接口返回异常: code={data.get('code')} message={data.get('message')}"
+        )
 
     raise ValueError("找不到最新一期bilibili视频链接")
 
 
 async def get_bili_detail(bili_url: str) -> str:
-    page = await aiohttp_get(bili_url, res_type="text", headers={"referer": "https://www.bilibili.com/"})
+    page = await aiohttp_get(
+        bili_url, res_type="text", headers={"referer": "https://www.bilibili.com/"}
+    )
     if not page:
         raise ValueError("获取bilibili页面失败")
 
@@ -1393,7 +1648,7 @@ async def fetch_dungeon_notes() -> dict[str, dict[str, str]]:
         raise ValueError("获取攻略列表失败")
 
     note_dict: dict[str, dict[str, str]] = {}
-    matches = re.findall(r'/duty/.*?</a>', page, flags=re.S)
+    matches = re.findall(r"/duty/.*?</a>", page, flags=re.S)
     for line in matches[:-3]:
         try:
             page_id = line.split(".htm", 1)[0].replace("/duty/", "")
@@ -1408,7 +1663,10 @@ async def fetch_dungeon_notes() -> dict[str, dict[str, str]]:
 async def get_dungeon_note(dungeon_info: str) -> tuple[str, bool]:
     dungeon_level, dungeon_name, is_text = parse_dungeon_query(dungeon_info)
     if not dungeon_name:
-        return "查攻略格式：攻略 (副本等级) 副本名关键字 (文本)。括号内为可选参数，默认输出图片攻略。", True
+        return (
+            "查攻略格式：攻略 (副本等级) 副本名关键字 (文本)。括号内为可选参数，默认输出图片攻略。",
+            True,
+        )
 
     note_dict = await fetch_dungeon_notes()
     page_matches = []
@@ -1431,7 +1689,9 @@ async def get_dungeon_note(dungeon_info: str) -> tuple[str, bool]:
             result += page_match[0] + " " + page_match[1] + "、"
         return result[:-1], True
 
-    detail_page = await aiohttp_get(f"{DUNGEON_NOTE_URL}/{page_matches[0][-1]}.htm", res_type="text")
+    detail_page = await aiohttp_get(
+        f"{DUNGEON_NOTE_URL}/{page_matches[0][-1]}.htm", res_type="text"
+    )
     if not detail_page:
         return "攻略详情获取失败，请稍后再试", True
 
@@ -1469,7 +1729,9 @@ async def garland_core_value(path: str):
 def garland_partials(payload: dict) -> dict[tuple[str, str], dict]:
     result = {}
     for partial in payload.get("partials", []):
-        result[(str(partial.get("type")), str(partial.get("id")))] = partial.get("obj", {})
+        result[(str(partial.get("type")), str(partial.get("id")))] = partial.get(
+            "obj", {}
+        )
     return result
 
 
@@ -1559,7 +1821,9 @@ async def parse_item_garland(item_id: int) -> tuple[str, dict]:
         for node_id in item["nodes"][:5]:
             node = partials.get(("node", str(node_id)))
             if node:
-                location_name = await garland_core_value(f"locationIndex.{node.get('z')}.name")
+                location_name = await garland_core_value(
+                    f"locationIndex.{node.get('z')}.name"
+                )
                 lines.append(f"  -- {location_name} {format_garland_node(node)}")
                 source_count += 1
 
@@ -1568,9 +1832,17 @@ async def parse_item_garland(item_id: int) -> tuple[str, dict]:
         for spot_id in item["fishingSpots"][:5]:
             spot = partials.get(("fishing", str(spot_id)))
             if spot:
-                location_name = await garland_core_value(f"locationIndex.{spot.get('z')}.name")
-                coord = f"({spot.get('x')}, {spot.get('y')})" if spot.get("x") is not None else ""
-                lines.append(f"  -- {location_name} {spot.get('n', '')} {spot.get('l', '')}级 {coord}")
+                location_name = await garland_core_value(
+                    f"locationIndex.{spot.get('z')}.name"
+                )
+                coord = (
+                    f"({spot.get('x')}, {spot.get('y')})"
+                    if spot.get("x") is not None
+                    else ""
+                )
+                lines.append(
+                    f"  -- {location_name} {spot.get('n', '')} {spot.get('l', '')}级 {coord}"
+                )
                 source_count += 1
 
     if item.get("craft"):
@@ -1584,7 +1856,9 @@ async def parse_item_garland(item_id: int) -> tuple[str, dict]:
                 if ingredient.get("id", 0) < 20:
                     continue
                 ingredient_item = partials.get(("item", str(ingredient["id"])), {})
-                ingredients.append(f"{ingredient_item.get('n', ingredient['id'])}*{ingredient.get('amount', 1)}")
+                ingredients.append(
+                    f"{ingredient_item.get('n', ingredient['id'])}*{ingredient.get('amount', 1)}"
+                )
             if ingredients:
                 lines.append("     " + "、".join(ingredients))
             source_count += 1
@@ -1596,10 +1870,14 @@ async def parse_item_garland(item_id: int) -> tuple[str, dict]:
             if vendor:
                 location = ""
                 if vendor.get("l"):
-                    location = await garland_core_value(f"locationIndex.{vendor['l']}.name")
+                    location = await garland_core_value(
+                        f"locationIndex.{vendor['l']}.name"
+                    )
                 coord = vendor.get("c") or []
                 coord_text = f"({coord[0]}, {coord[1]})" if len(coord) >= 2 else ""
-                lines.append(f"  -- {vendor.get('n', '')} {location} {coord_text}".strip())
+                lines.append(
+                    f"  -- {vendor.get('n', '')} {location} {coord_text}".strip()
+                )
                 source_count += 1
         if len(item["vendors"]) > 5:
             lines.append(f"  -- 等共计{len(item['vendors'])}个商人售卖")
@@ -1608,13 +1886,17 @@ async def parse_item_garland(item_id: int) -> tuple[str, dict]:
     if trades:
         lines.append("·兑换")
         for trade in trades[:3]:
-            shop_name = "商店交易" if trade.get("shop") == "Shop" else trade.get("shop", "兑换")
+            shop_name = (
+                "商店交易" if trade.get("shop") == "Shop" else trade.get("shop", "兑换")
+            )
             lines.append(f"  -- {shop_name}")
             for listing in trade.get("listings", [])[:2]:
                 currencies = []
                 for currency in listing.get("currency", [])[:3]:
                     currency_item = partials.get(("item", str(currency.get("id"))), {})
-                    currencies.append(f"{currency_item.get('n', currency.get('id'))}*{currency.get('amount', 1)}")
+                    currencies.append(
+                        f"{currency_item.get('n', currency.get('id'))}*{currency.get('amount', 1)}"
+                    )
                 if currencies:
                     lines.append("     使用 " + "、".join(currencies))
             source_count += 1
@@ -1624,7 +1906,9 @@ async def parse_item_garland(item_id: int) -> tuple[str, dict]:
         for mob_id in item["drops"][:5]:
             mob = partials.get(("mob", str(mob_id)))
             if mob:
-                location = await garland_core_value(f"locationIndex.{mob.get('z')}.name")
+                location = await garland_core_value(
+                    f"locationIndex.{mob.get('z')}.name"
+                )
                 lines.append(f"  -- {mob.get('n', '')} {location}")
                 source_count += 1
 
@@ -1653,7 +1937,9 @@ async def parse_item_garland(item_id: int) -> tuple[str, dict]:
     if "tradeable" in item:
         status.append("可交易" if item.get("tradeable") else "不可交易")
     if "unlistable" in item:
-        status.append("不可在市场上交易" if item.get("unlistable") else "可在市场上交易")
+        status.append(
+            "不可在市场上交易" if item.get("unlistable") else "可在市场上交易"
+        )
     if item.get("storable"):
         status.append("可放入收藏柜")
     if status:
@@ -1723,7 +2009,9 @@ async def parse_market_query(query: str) -> MarketQuery:
     )
 
 
-async def fetch_market_listings(location: str, item_id: int, fetch_limit: int) -> tuple[dict | None, str]:
+async def fetch_market_listings(
+    location: str, item_id: int, fetch_limit: int
+) -> tuple[dict | None, str]:
     params = urlencode({"listings": fetch_limit, "entries": 0})
     url = f"https://universalis.app/api/v2/{quote(location)}/{item_id}?{params}"
     payload = await aiohttp_get(url)
@@ -1734,7 +2022,9 @@ async def fetch_market_listings(location: str, item_id: int, fetch_limit: int) -
 
 def format_market_time(timestamp_ms) -> str:
     try:
-        return datetime.fromtimestamp(int(timestamp_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.fromtimestamp(int(timestamp_ms) / 1000).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
     except (TypeError, ValueError, OSError):
         return "未知"
 
@@ -1750,7 +2040,10 @@ async def create_market_text(query: MarketQuery) -> str:
     locations = DATA_CENTRES if query.scope_type == "all" else [query.scope_name]
     fetch_limit = min(max(query.limit * (5 if query.hq else 2), 20), 100)
     results = await asyncio.gather(
-        *(fetch_market_listings(location, item_id, fetch_limit) for location in locations),
+        *(
+            fetch_market_listings(location, item_id, fetch_limit)
+            for location in locations
+        ),
         return_exceptions=True,
     )
 
@@ -1776,16 +2069,22 @@ async def create_market_text(query: MarketQuery) -> str:
 
     listings.sort(
         key=lambda item: (
-            item.get("pricePerUnit") if item.get("pricePerUnit") is not None else 10**18,
+            item.get("pricePerUnit")
+            if item.get("pricePerUnit") is not None
+            else 10**18,
             item.get("total") if item.get("total") is not None else 10**18,
         )
     )
-    listings = listings[:query.limit]
+    listings = listings[: query.limit]
 
     hq_label = "HQ" if query.hq else "全部"
-    lines = [f"【{real_name or query.item_name} 价格】范围：{query.scope_name}  品质：{hq_label}  数量：{len(listings)}"]
+    lines = [
+        f"【{real_name or query.item_name} 价格】范围：{query.scope_name}  品质：{hq_label}  数量：{len(listings)}"
+    ]
     if not listings:
-        lines.append("未查询到数据，可能是物品不可交易、暂时无人上架或 Universalis 暂时不可用。")
+        lines.append(
+            "未查询到数据，可能是物品不可交易、暂时无人上架或 Universalis 暂时不可用。"
+        )
         if errors:
             lines.append("接口错误：" + "；".join(errors[:3]))
         return "\n".join(lines)
@@ -1797,7 +2096,9 @@ async def create_market_text(query: MarketQuery) -> str:
         quality = "HQ" if listing.get("hq") else "NQ"
         world = listing.get("worldName") or listing.get("_scope", "")
         retainer = listing.get("retainerName") or "未知雇员"
-        lines.append(f"{index:02d}. {price:,} x{quantity} = {total:,} {quality} @ {world} / {retainer}")
+        lines.append(
+            f"{index:02d}. {price:,} x{quantity} = {total:,} {quality} @ {world} / {retainer}"
+        )
 
     if upload_times:
         lines.append("更新时间：" + format_market_time(max(upload_times)))
@@ -1849,7 +2150,10 @@ def find_logs_job(job_name: str | None) -> dict | None:
     query = normalize_logs_lookup(job_name)
     for item in load_json_list(JOB_JSON):
         aliases = item.get("nickname", [])
-        names = [normalize_logs_lookup(name) for name in [item.get("name"), item.get("cn_name"), *aliases]]
+        names = [
+            normalize_logs_lookup(name)
+            for name in [item.get("name"), item.get("cn_name"), *aliases]
+        ]
         if query in names:
             return item
     return None
@@ -1943,7 +2247,9 @@ def fflogs_region_entries(boss: dict, cn_source: bool) -> list[str]:
 async def get_fflogs_token(host: str, client_id: str, client_secret: str) -> str:
     timeout = aiohttp.ClientTimeout(total=20)
     auth = aiohttp.BasicAuth(client_id, client_secret)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession(
+        timeout=timeout, headers=api_request_headers()
+    ) as session:
         async with session.post(
             f"{host}/oauth/token",
             data={"grant_type": "client_credentials"},
@@ -1960,7 +2266,9 @@ async def get_fflogs_token(host: str, client_id: str, client_secret: str) -> str
 
 async def fflogs_graphql(host: str, token: str, query: str, variables: dict) -> dict:
     timeout = aiohttp.ClientTimeout(total=25)
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    headers = api_request_headers(
+        {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    )
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
         async with session.post(
             f"{host}/api/v2/client",
@@ -1988,7 +2296,11 @@ async def fetch_fflogs_metadata(host: str, token: str) -> dict:
 
 def fflogs_zone_by_id(metadata: dict) -> dict[int, dict]:
     zones = metadata.get("worldData", {}).get("zones", [])
-    return {int(zone["id"]): zone for zone in zones if isinstance(zone, dict) and zone.get("id") is not None}
+    return {
+        int(zone["id"]): zone
+        for zone in zones
+        if isinstance(zone, dict) and zone.get("id") is not None
+    }
 
 
 def fflogs_encounters_by_id(zone: dict | None) -> dict[int, dict]:
@@ -2005,7 +2317,11 @@ def fflogs_encounters_by_id(zone: dict | None) -> dict[int, dict]:
 def fflogs_metadata_regions(zone: dict | None) -> list[str]:
     if not isinstance(zone, dict):
         return []
-    partitions = [part for part in zone.get("partitions", []) if isinstance(part, dict) and part.get("id") is not None]
+    partitions = [
+        part
+        for part in zone.get("partitions", [])
+        if isinstance(part, dict) and part.get("id") is not None
+    ]
     selected = [
         part
         for part in partitions
@@ -2021,7 +2337,9 @@ def fflogs_metadata_regions(zone: dict | None) -> list[str]:
         selected = partitions
     if not selected:
         return ["-1###1"]
-    return [f"{part.get('name') or part['id']}###{int(part['id'])}" for part in selected]
+    return [
+        f"{part.get('name') or part['id']}###{int(part['id'])}" for part in selected
+    ]
 
 
 def fflogs_metadata_difficulty(zone: dict | None) -> int:
@@ -2035,25 +2353,33 @@ def fflogs_metadata_difficulty(zone: dict | None) -> int:
     return max(ids) if ids else 100
 
 
-def build_fflogs_metadata_boss(en_zone: dict, cn_zone: dict | None, encounter_id: int) -> dict | None:
+def build_fflogs_metadata_boss(
+    en_zone: dict, cn_zone: dict | None, encounter_id: int
+) -> dict | None:
     en_encounter = fflogs_encounters_by_id(en_zone).get(encounter_id)
     if not en_encounter:
         return None
-    cn_encounter = fflogs_encounters_by_id(cn_zone).get(encounter_id) if cn_zone else None
+    cn_encounter = (
+        fflogs_encounters_by_id(cn_zone).get(encounter_id) if cn_zone else None
+    )
     en_name = en_encounter.get("name") or ""
     cn_name = cn_encounter.get("name") if isinstance(cn_encounter, dict) else None
     return {
         "pk": encounter_id,
         "quest": int(en_zone["id"]),
         "zone_name": en_zone.get("name") or "",
-        "cn_zone_name": cn_zone.get("name") if isinstance(cn_zone, dict) else en_zone.get("name") or "",
+        "cn_zone_name": cn_zone.get("name")
+        if isinstance(cn_zone, dict)
+        else en_zone.get("name") or "",
         "name": en_name,
         "cn_name": cn_name or en_name,
         "nickname": [],
         "patch": 0,
         "savage": fflogs_metadata_difficulty(en_zone),
         "region": fflogs_metadata_regions(en_zone),
-        "cn_region": fflogs_metadata_regions(cn_zone) if cn_zone else fflogs_metadata_regions(en_zone),
+        "cn_region": fflogs_metadata_regions(cn_zone)
+        if cn_zone
+        else fflogs_metadata_regions(en_zone),
     }
 
 
@@ -2061,10 +2387,16 @@ def fflogs_metadata_boss_names(entry: dict, zone: dict | None = None) -> list[st
     names = [entry.get("name"), entry.get("cn_name"), *entry.get("nickname", [])]
     if isinstance(zone, dict) and len(zone.get("encounters", []) or []) == 1:
         names.append(zone.get("name"))
-    return [normalize_logs_lookup(name) for name in names if isinstance(name, str) and name.strip()]
+    return [
+        normalize_logs_lookup(name)
+        for name in names
+        if isinstance(name, str) and name.strip()
+    ]
 
 
-async def find_logs_boss_metadata(boss_name: str, client_id: str, client_secret: str) -> dict | None:
+async def find_logs_boss_metadata(
+    boss_name: str, client_id: str, client_secret: str
+) -> dict | None:
     if not client_id or not client_secret:
         return None
     query = normalize_logs_lookup(boss_name)
@@ -2117,7 +2449,10 @@ def normalize_fflogs_result(
     ]
     if stat.get("parses"):
         lines.append(f"记录数: {stat['parses']}")
-    lines.extend(f"{percentile}%: {stat[str(percentile)]:.2f}" for percentile in FFLOGS_PERCENTILES)
+    lines.extend(
+        f"{percentile}%: {stat[str(percentile)]:.2f}"
+        for percentile in FFLOGS_PERCENTILES
+    )
     return "\n".join(lines)
 
 
@@ -2127,26 +2462,40 @@ def parse_fflogs_number(value: str) -> float:
 
 def decode_fflogs_page_text(value: str) -> str:
     text = html.unescape(value)
-    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
+    text = re.sub(
+        r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text
+    )
     return text.replace("\\/", "/")
 
 
 def fflogs_text_from_html(value: str) -> str:
     text = decode_fflogs_page_text(value)
-    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", text, flags=re.IGNORECASE | re.DOTALL)
-    text = re.sub(r"<style\b[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(
+        r"<script\b[^>]*>.*?</script>", " ", text, flags=re.IGNORECASE | re.DOTALL
+    )
+    text = re.sub(
+        r"<style\b[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL
+    )
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
 def fflogs_number_candidates(value: str) -> list[float]:
     numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", value)
-    return [parse_fflogs_number(number) for number in numbers if parse_fflogs_number(number) >= 1000]
+    return [
+        parse_fflogs_number(number)
+        for number in numbers
+        if parse_fflogs_number(number) >= 1000
+    ]
 
 
 def fflogs_decimal_candidates(value: str) -> list[float]:
     numbers = re.findall(r"\d{1,3}(?:,\d{3})*\.\d+|\d+\.\d+", value)
-    return [parse_fflogs_number(number) for number in numbers if parse_fflogs_number(number) >= 1000]
+    return [
+        parse_fflogs_number(number)
+        for number in numbers
+        if parse_fflogs_number(number) >= 1000
+    ]
 
 
 def choose_fflogs_percentile_values(values: list[float]) -> list[float] | None:
@@ -2154,14 +2503,18 @@ def choose_fflogs_percentile_values(values: list[float]) -> list[float] | None:
     return blocks[0] if blocks else None
 
 
-def find_fflogs_percentile_value_blocks(values: list[float], limit: int = 3) -> list[list[float]]:
+def find_fflogs_percentile_value_blocks(
+    values: list[float], limit: int = 3
+) -> list[list[float]]:
     expected_count = len(FFLOGS_PERCENTILES)
     blocks = []
     for index in range(0, len(values) - expected_count + 1):
         block = values[index : index + expected_count]
         if (
             block[0] > block[1]
-            and all(block[item] >= block[item + 1] for item in range(expected_count - 1))
+            and all(
+                block[item] >= block[item + 1] for item in range(expected_count - 1)
+            )
             and block[-1] >= block[0] * 0.35
         ):
             blocks.append(block)
@@ -2174,7 +2527,9 @@ def stat_from_fflogs_percentile_values(values: list[float], text: str) -> dict:
     stat = {}
     for percentile, value in zip(sorted(FFLOGS_PERCENTILES, reverse=True), values):
         stat[str(percentile)] = value
-    date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+    date_match = re.search(
+        r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text
+    )
     if date_match:
         stat["date_range"] = date_match.group(0)
     return stat
@@ -2222,7 +2577,12 @@ def parse_logs_statistics_chart_value_block(text: str, job: dict) -> dict | None
 def parse_logs_statistics_chart_values(page: str, job: dict) -> dict | None:
     text = decode_fflogs_page_text(page)
     labels = {
-        100: [f"{job.get('cn_name', '')} 最高", f"{job.get('name', '')} Max", "最高", "Max"],
+        100: [
+            f"{job.get('cn_name', '')} 最高",
+            f"{job.get('name', '')} Max",
+            "最高",
+            "Max",
+        ],
         99: ["第99百分位数", "99th percentile", "99th Percentile"],
         95: ["第95百分位数", "95th percentile", "95th Percentile"],
         75: ["第75百分位数", "75th percentile", "75th Percentile"],
@@ -2245,7 +2605,9 @@ def parse_logs_statistics_chart_values(page: str, job: dict) -> dict | None:
                 break
         if str(percentile) not in stat:
             return None
-    date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+    date_match = re.search(
+        r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text
+    )
     if date_match:
         stat["date_range"] = date_match.group(0)
     return stat
@@ -2282,12 +2644,17 @@ def fflogs_debug_td_samples(page: str, pattern: str, limit: int = 3) -> list[str
 
 
 def fflogs_debug_script_sources(page: str, limit: int = 12) -> list[str]:
-    sources = re.findall(r"<script\b[^>]*\bsrc=[\"']([^\"']+)[\"']", page, flags=re.IGNORECASE)
+    sources = re.findall(
+        r"<script\b[^>]*\bsrc=[\"']([^\"']+)[\"']", page, flags=re.IGNORECASE
+    )
     return [html.unescape(source) for source in sources[:limit]]
 
 
 def fflogs_debug_urls(page: str, limit: int = 12) -> list[str]:
-    urls = re.findall(r"(?:https?:)?//[^\"'<>\\\s]+|(?<!<)/[^\"'<>\\\s]*(?:statistics|api|rankings|table)[^\"'<>\\\s]*", page)
+    urls = re.findall(
+        r"(?:https?:)?//[^\"'<>\\\s]+|(?<!<)/[^\"'<>\\\s]*(?:statistics|api|rankings|table)[^\"'<>\\\s]*",
+        page,
+    )
     deduped = []
     for url in urls:
         value = html.unescape(url)
@@ -2304,17 +2671,27 @@ def fflogs_debug_table_tags(page: str, limit: int = 5) -> list[str]:
 
 
 def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
-    job_names = [name for name in [job.get("cn_name"), job.get("name")] if isinstance(name, str) and name]
+    job_names = [
+        name
+        for name in [job.get("cn_name"), job.get("name")]
+        if isinstance(name, str) and name
+    ]
     rows = re.findall(r"<tr\b[^>]*>.*?</tr>", page, flags=re.IGNORECASE | re.DOTALL)
     candidates = rows if rows else [page]
     for row in candidates:
         text = fflogs_text_from_html(row)
         if not any(name in text for name in job_names):
             continue
-        date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
-        number_text = text[date_match.end():] if date_match else text
+        date_match = re.search(
+            r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text
+        )
+        number_text = text[date_match.end() :] if date_match else text
         numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
-        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number and parse_fflogs_number(number) >= 1000]
+        dps_candidates = [
+            parse_fflogs_number(number)
+            for number in numbers
+            if "." in number and parse_fflogs_number(number) >= 1000
+        ]
         if not dps_candidates:
             continue
         result = {
@@ -2323,7 +2700,9 @@ def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
         }
         if len(dps_candidates) > 1:
             result["max"] = dps_candidates[1]
-        parse_candidates = [int(number.replace(",", "")) for number in numbers if "." not in number]
+        parse_candidates = [
+            int(number.replace(",", "")) for number in numbers if "." not in number
+        ]
         if parse_candidates:
             result["parses"] = parse_candidates[-1]
         return result
@@ -2334,10 +2713,16 @@ def parse_logs_statistics_summary_row(page: str, job: dict) -> dict | None:
         if index < 0:
             continue
         section = text[index : index + 800]
-        date_match = re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", section)
-        number_text = section[date_match.end():] if date_match else section
+        date_match = re.search(
+            r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", section
+        )
+        number_text = section[date_match.end() :] if date_match else section
         numbers = re.findall(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?", number_text)
-        dps_candidates = [parse_fflogs_number(number) for number in numbers if "." in number and parse_fflogs_number(number) >= 1000]
+        dps_candidates = [
+            parse_fflogs_number(number)
+            for number in numbers
+            if "." in number and parse_fflogs_number(number) >= 1000
+        ]
         if dps_candidates:
             return {
                 "dps": dps_candidates[0],
@@ -2369,39 +2754,66 @@ def log_fflogs_statistics_page_diagnostics(page: str, job: dict) -> None:
             continue
         index = decoded.rfind(str(name))
         if index >= 0:
-            job_decimal_candidates.extend(fflogs_decimal_candidates(decoded[index : index + 1200]))
+            job_decimal_candidates.extend(
+                fflogs_decimal_candidates(decoded[index : index + 1200])
+            )
     global_decimal_candidates = fflogs_decimal_candidates(decoded)
     global_blocks = find_fflogs_percentile_value_blocks(global_decimal_candidates)
     markers = {
         "cn_job": bool(job.get("cn_name") and job["cn_name"] in decoded),
         "en_job": bool(job.get("name") and job["name"] in decoded),
-        "date": bool(re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)),
-        "chart": "第99百分位数" in decoded or "99th percentile" in decoded or "99th Percentile" in decoded,
+        "date": bool(
+            re.search(r"[A-Z][a-z]{2}\s+\d{1,2}\s*-\s*[A-Z][a-z]{2}\s+\d{1,2}", text)
+        ),
+        "chart": "第99百分位数" in decoded
+        or "99th percentile" in decoded
+        or "99th Percentile" in decoded,
         "table_rows": bool(re.search(r"<tr\b", decoded, flags=re.IGNORECASE)),
         "data_push": "data.push" in decoded,
-        "cloudflare": "Just a moment" in decoded or "Enable JavaScript and cookies" in decoded,
+        "cloudflare": "Just a moment" in decoded
+        or "Enable JavaScript and cookies" in decoded,
         "td_count": len(re.findall(r"<td\b", decoded, flags=re.IGNORECASE)),
-        "primary_td_count": len(re.findall(r"<td\b[^>]*\bprimary\b", decoded, flags=re.IGNORECASE)),
-        "main_table_number_td_count": len(re.findall(r"<td\b[^>]*\bmain-table-number\b", decoded, flags=re.IGNORECASE)),
+        "primary_td_count": len(
+            re.findall(r"<td\b[^>]*\bprimary\b", decoded, flags=re.IGNORECASE)
+        ),
+        "main_table_number_td_count": len(
+            re.findall(r"<td\b[^>]*\bmain-table-number\b", decoded, flags=re.IGNORECASE)
+        ),
         "primary_main_table_cell_count": len(primary_cells),
         "datatable_string_count": decoded.count("DataTables"),
         "summary_table_string_count": decoded.count("summary-table"),
         "main_table_number_string_count": decoded.count("main-table-number"),
         "statistics_table_string_count": decoded.count("statistics/table"),
     }
-    logger.info(f"FFLogs statistics page diagnostics: len={len(page)} markers={markers}")
+    logger.info(
+        f"FFLogs statistics page diagnostics: len={len(page)} markers={markers}"
+    )
     logger.info(f"FFLogs statistics primary values sample: {primary_values[:8]}")
-    logger.info(f"FFLogs statistics job-window decimals sample: {job_decimal_candidates[:12]}")
-    logger.info(f"FFLogs statistics global decimals sample: {global_decimal_candidates[:30]}")
+    logger.info(
+        f"FFLogs statistics job-window decimals sample: {job_decimal_candidates[:12]}"
+    )
+    logger.info(
+        f"FFLogs statistics global decimals sample: {global_decimal_candidates[:30]}"
+    )
     logger.info(f"FFLogs statistics descending blocks sample: {global_blocks}")
-    logger.info(f"FFLogs statistics main-table-number td samples: {fflogs_debug_td_samples(decoded, r'main-table-number')}")
-    logger.info(f"FFLogs statistics primary td samples: {fflogs_debug_td_samples(decoded, r'\\bprimary\\b')}")
-    logger.info(f"FFLogs statistics script src sample: {fflogs_debug_script_sources(decoded)}")
+    logger.info(
+        f"FFLogs statistics main-table-number td samples: {fflogs_debug_td_samples(decoded, r'main-table-number')}"
+    )
+    logger.info(
+        f"FFLogs statistics primary td samples: {fflogs_debug_td_samples(decoded, r'\\bprimary\\b')}"
+    )
+    logger.info(
+        f"FFLogs statistics script src sample: {fflogs_debug_script_sources(decoded)}"
+    )
     logger.info(f"FFLogs statistics url sample: {fflogs_debug_urls(decoded)}")
-    logger.info(f"FFLogs statistics table tag sample: {fflogs_debug_table_tags(decoded)}")
+    logger.info(
+        f"FFLogs statistics table tag sample: {fflogs_debug_table_tags(decoded)}"
+    )
 
 
-async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict) -> tuple[dict, str] | None:
+async def fetch_logs_statistics_summary(
+    query: LogsQuery, boss: dict, job: dict
+) -> tuple[dict, str] | None:
     host = FFLOGS_HOSTS[query.cn_source]
     stat = {}
     date_range = None
@@ -2460,7 +2872,9 @@ async def fetch_logs_statistics_summary(query: LogsQuery, boss: dict, job: dict)
     return stat, version_label or "网页默认"
 
 
-async def fetch_logs_statistics_browser_table(query: LogsQuery, boss: dict, job: dict) -> tuple[dict, str] | None:
+async def fetch_logs_statistics_browser_table(
+    query: LogsQuery, boss: dict, job: dict
+) -> tuple[dict, str] | None:
     regions = fflogs_region_entries(boss, query.cn_source)
     if not regions:
         return None
@@ -2492,7 +2906,9 @@ async def fetch_logs_statistics_browser_table(query: LogsQuery, boss: dict, job:
     return None
 
 
-async def fetch_logs_statistics_page(query: LogsQuery, boss: dict, job: dict) -> tuple[str, str] | None:
+async def fetch_logs_statistics_page(
+    query: LogsQuery, boss: dict, job: dict
+) -> tuple[str, str] | None:
     regions = fflogs_region_entries(boss, query.cn_source)
     if not regions:
         return None
@@ -2524,13 +2940,21 @@ def parse_logs_statistics_page(page: str) -> list[dict]:
     for percentile in FFLOGS_PERCENTILES:
         series_name = "" if percentile == 100 else str(percentile)
         pattern = rf"series{series_name}\.data\.push\(([+-]?(?:0|[1-9]\d*)(?:\.\d+)?)\)"
-        statistics[str(percentile)] = [float(value) for value in re.findall(pattern, page)]
+        statistics[str(percentile)] = [
+            float(value) for value in re.findall(pattern, page)
+        ]
     total_length = len(statistics["100"])
-    if not total_length or any(len(statistics[str(percentile)]) != total_length for percentile in FFLOGS_PERCENTILES):
+    if not total_length or any(
+        len(statistics[str(percentile)]) != total_length
+        for percentile in FFLOGS_PERCENTILES
+    ):
         return []
 
     def all_zero(index: int) -> bool:
-        return sum(statistics[str(percentile)][index] for percentile in FFLOGS_PERCENTILES) == 0
+        return (
+            sum(statistics[str(percentile)][index] for percentile in FFLOGS_PERCENTILES)
+            == 0
+        )
 
     left = 0
     right = total_length - 1
@@ -2552,14 +2976,20 @@ def parse_logs_statistics_page(page: str) -> list[dict]:
 
 async def create_logs_text_crawl(query: LogsQuery, boss: dict, job: dict) -> str:
     if query.day == -1:
-        browser_table_result = await fetch_logs_statistics_browser_table(query, boss, job)
+        browser_table_result = await fetch_logs_statistics_browser_table(
+            query, boss, job
+        )
         if browser_table_result:
             stat, region_info = browser_table_result
-            return normalize_fflogs_result(stat, query, boss, job, region_info, "FFLogs statistics browser table")
+            return normalize_fflogs_result(
+                stat, query, boss, job, region_info, "FFLogs statistics browser table"
+            )
         summary_result = await fetch_logs_statistics_summary(query, boss, job)
         if summary_result:
             stat, region_info = summary_result
-            return normalize_fflogs_result(stat, query, boss, job, region_info, "FFLogs statistics page")
+            return normalize_fflogs_result(
+                stat, query, boss, job, region_info, "FFLogs statistics page"
+            )
         return "FFLogs statistics 页面解析失败，已记录诊断日志，请检查插件日志中的 FFLogs statistics page diagnostics。"
 
     result = await fetch_logs_statistics_page(query, boss, job)
@@ -2570,12 +3000,16 @@ async def create_logs_text_crawl(query: LogsQuery, boss: dict, job: dict) -> str
     if not rows:
         return "No data found"
     row = rows[-1] if query.day == -1 or query.day >= len(rows) else rows[query.day]
-    return normalize_fflogs_result(row, query, boss, job, region_info, "FFLogs statistics table")
+    return normalize_fflogs_result(
+        row, query, boss, job, region_info, "FFLogs statistics table"
+    )
 
 
 async def create_logs_text(query: LogsQuery, client_id: str, client_secret: str) -> str:
     if not query.boss_name or not query.job_name:
-        return "查logs格式：输出 boss名 职业名 (国服) (rdps) (day2)\n例：输出 海德林 武士"
+        return (
+            "查logs格式：输出 boss名 职业名 (国服) (rdps) (day2)\n例：输出 海德林 武士"
+        )
     if query.day == -2:
         return "day格式不对，例如：day2"
     job = find_logs_job(query.job_name)
@@ -2584,7 +3018,9 @@ async def create_logs_text(query: LogsQuery, client_id: str, client_secret: str)
     bosses = find_logs_bosses(query.boss_name)
     if not bosses:
         try:
-            boss = await find_logs_boss_metadata(query.boss_name, client_id, client_secret)
+            boss = await find_logs_boss_metadata(
+                query.boss_name, client_id, client_secret
+            )
             bosses = [boss] if boss else []
         except Exception as exc:
             logger.info(f"FFLogs metadata 动态查找失败: {exc}")
@@ -2608,7 +3044,9 @@ def parse_character_logs_query(query: str) -> CharacterLogsQuery:
             continue
         content_parts.append(part)
     if len(content_parts) < 2:
-        return CharacterLogsQuery(" ".join(content_parts).strip() or None, None, cn_source)
+        return CharacterLogsQuery(
+            " ".join(content_parts).strip() or None, None, cn_source
+        )
     return CharacterLogsQuery(
         character_name=" ".join(content_parts[:-1]).strip() or None,
         server_name=content_parts[-1].strip() or None,
@@ -2617,10 +3055,17 @@ def parse_character_logs_query(query: str) -> CharacterLogsQuery:
 
 
 def fflogs_character_partition_label(partition: dict) -> str:
-    return str(partition.get("compactName") or partition.get("name") or partition.get("id") or "").strip()
+    return str(
+        partition.get("compactName")
+        or partition.get("name")
+        or partition.get("id")
+        or ""
+    ).strip()
 
 
-def fflogs_character_partition_version(zone_id: int, partition_id: int, label: str, fallback: str | None = None) -> str:
+def fflogs_character_partition_version(
+    zone_id: int, partition_id: int, label: str, fallback: str | None = None
+) -> str:
     override = FFLOGS_CHARACTER_PARTITION_VERSION_OVERRIDES.get((zone_id, partition_id))
     if override:
         return override
@@ -2633,7 +3078,9 @@ def fflogs_character_partition_version(zone_id: int, partition_id: int, label: s
     return label or fallback or str(partition_id)
 
 
-def fflogs_character_zone_partitions(metadata: dict, zone_id: int) -> list[tuple[int, str]]:
+def fflogs_character_zone_partitions(
+    metadata: dict, zone_id: int
+) -> list[tuple[int, str]]:
     zone = fflogs_zone_by_id(metadata).get(zone_id)
     if not isinstance(zone, dict):
         return []
@@ -2738,15 +3185,25 @@ async def fflogs_character_server_candidates(
     if query.cn_source is True:
         return [(FFLOGS_HOSTS[True], "CN", "国服")]
     if query.cn_source is False:
-        return [(FFLOGS_HOSTS[False], region, f"国际服 {region}") for region in FFLOGS_GLOBAL_CHARACTER_REGIONS]
+        return [
+            (FFLOGS_HOSTS[False], region, f"国际服 {region}")
+            for region in FFLOGS_GLOBAL_CHARACTER_REGIONS
+        ]
 
     known_cn = await is_cn_character_server(server_name)
     if known_cn:
         return [(FFLOGS_HOSTS[True], "CN", "国服")]
 
     cn_candidate = [(FFLOGS_HOSTS[True], "CN", "国服")]
-    global_candidates = [(FFLOGS_HOSTS[False], region, f"国际服 {region}") for region in FFLOGS_GLOBAL_CHARACTER_REGIONS]
-    return cn_candidate + global_candidates if default_cn_source else global_candidates + cn_candidate
+    global_candidates = [
+        (FFLOGS_HOSTS[False], region, f"国际服 {region}")
+        for region in FFLOGS_GLOBAL_CHARACTER_REGIONS
+    ]
+    return (
+        cn_candidate + global_candidates
+        if default_cn_source
+        else global_candidates + cn_candidate
+    )
 
 
 async def fetch_fflogs_character_logs(
@@ -2762,10 +3219,16 @@ async def fetch_fflogs_character_logs(
         metadata = await fetch_fflogs_metadata(host, token)
         requests = build_fflogs_character_zone_requests(metadata)
     except Exception as exc:
-        logger.info(f"FFLogs 角色查询分区 metadata 获取失败，使用默认分区: {exception_detail(exc)}")
+        logger.info(
+            f"FFLogs 角色查询分区 metadata 获取失败，使用默认分区: {exception_detail(exc)}"
+        )
     logger.info(f"FFLogs 角色查询分区数量: {len(requests)}")
     batches = iter_fflogs_character_request_batches(requests)
-    variables = {"name": query.character_name, "server": query.server_name, "region": region}
+    variables = {
+        "name": query.character_name,
+        "server": query.server_name,
+        "region": region,
+    }
     semaphore = asyncio.Semaphore(FFLOGS_CHARACTER_QUERY_CONCURRENCY)
 
     async def fetch_batch(batch: list[dict]) -> dict | None:
@@ -2776,10 +3239,14 @@ async def fetch_fflogs_character_logs(
                 build_fflogs_character_logs_query(batch),
                 variables,
             )
-        character_payload = payload.get("data", {}).get("characterData", {}).get("character")
+        character_payload = (
+            payload.get("data", {}).get("characterData", {}).get("character")
+        )
         return character_payload if isinstance(character_payload, dict) else None
 
-    results = await asyncio.gather(*(fetch_batch(batch) for batch in batches), return_exceptions=True)
+    results = await asyncio.gather(
+        *(fetch_batch(batch) for batch in batches), return_exceptions=True
+    )
     character: dict | None = None
     failed_batches = []
     for index, result in enumerate(results, start=1):
@@ -2803,7 +3270,9 @@ async def fetch_fflogs_character_logs(
         logger.warning(f"FFLogs 角色查询分批失败: {'; '.join(failed_batches)}")
     if character is None:
         if failed_batches:
-            raise RuntimeError(f"FFLogs 角色查询全部分批失败: {'; '.join(failed_batches)}")
+            raise RuntimeError(
+                f"FFLogs 角色查询全部分批失败: {'; '.join(failed_batches)}"
+            )
         return None
     character["_tataru_requests"] = requests
     return character
@@ -2849,7 +3318,9 @@ def fflogs_character_job_label(job_name: str | None) -> str:
     return str(job.get("cn_name") or job_name) if job else job_name
 
 
-def fflogs_character_encounter_label(encounter_id: int, encounter_name: str | None = None) -> str:
+def fflogs_character_encounter_label(
+    encounter_id: int, encounter_name: str | None = None
+) -> str:
     short_label = FFLOGS_CHARACTER_SHORT_LABELS.get(encounter_id)
     boss = find_logs_boss_by_pk(encounter_id)
     boss_name = str((boss or {}).get("cn_name") or encounter_name or encounter_id)
@@ -2878,18 +3349,34 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
         for ranking in rankings:
             if not isinstance(ranking, dict):
                 continue
-            encounter = ranking.get("encounter") if isinstance(ranking.get("encounter"), dict) else {}
+            encounter = (
+                ranking.get("encounter")
+                if isinstance(ranking.get("encounter"), dict)
+                else {}
+            )
             encounter_id = fflogs_character_int(encounter, "id")
             if encounter_id is None:
-                encounter_id = fflogs_character_int(ranking, "encounterID", "encounter_id")
+                encounter_id = fflogs_character_int(
+                    ranking, "encounterID", "encounter_id"
+                )
             if encounter_id is None:
                 continue
-            label = fflogs_character_encounter_label(encounter_id, encounter.get("name"))
-            percent = fflogs_character_float(ranking, "rankPercent", "rank_percent", "historicalPercent")
-            amount = fflogs_character_float(ranking, "bestAmount", "best_amount", "amount")
+            label = fflogs_character_encounter_label(
+                encounter_id, encounter.get("name")
+            )
+            percent = fflogs_character_float(
+                ranking, "rankPercent", "rank_percent", "historicalPercent"
+            )
+            amount = fflogs_character_float(
+                ranking, "bestAmount", "best_amount", "amount"
+            )
             rank = fflogs_character_int(ranking, "rank", "bestRank", "best_rank")
-            total_parses = fflogs_character_int(ranking, "totalParses", "rankTotalParses", "total_parses")
-            job_name = fflogs_character_value(ranking, "spec", "bestSpec", "best_job", "job")
+            total_parses = fflogs_character_int(
+                ranking, "totalParses", "rankTotalParses", "total_parses"
+            )
+            job_name = fflogs_character_value(
+                ranking, "spec", "bestSpec", "best_job", "job"
+            )
             job_label = fflogs_character_job_label(str(job_name) if job_name else None)
             has_percent = percent is not None and percent > 0
             has_amount = amount is not None and amount > 0
@@ -2900,7 +3387,9 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
             current_percent = current.get("percent") if current else None
             if current:
                 if request.get("type") in {"ultimate", "savage"}:
-                    request_order = int(request.get("order", 0)) * 100000 + int(request.get("partition_order", 0))
+                    request_order = int(request.get("order", 0)) * 100000 + int(
+                        request.get("partition_order", 0)
+                    )
                     current_order = int(current.get("version_order", 0))
                     if request_order < current_order:
                         continue
@@ -2908,14 +3397,19 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
                         current_percent = None
                 if percent is None and current_percent is not None:
                     continue
-                if percent is not None and current_percent is not None and percent <= current_percent:
+                if (
+                    percent is not None
+                    and current_percent is not None
+                    and percent <= current_percent
+                ):
                     continue
             records[label] = {
                 "encounter_id": encounter_id,
                 "label": label,
                 "category": request.get("type"),
                 "version": request.get("version"),
-                "version_order": int(request.get("order", 0)) * 100000 + int(request.get("partition_order", 0)),
+                "version_order": int(request.get("order", 0)) * 100000
+                + int(request.get("partition_order", 0)),
                 "percent": percent,
                 "amount": amount,
                 "rank": rank,
@@ -2925,8 +3419,12 @@ def collect_fflogs_character_records(character: dict) -> dict[str, dict]:
     return records
 
 
-def fflogs_character_url(host: str, region: str, server_name: str, character_name: str) -> str:
-    return f"{host}/character/{quote(region)}/{quote(server_name)}/{quote(character_name)}"
+def fflogs_character_url(
+    host: str, region: str, server_name: str, character_name: str
+) -> str:
+    return (
+        f"{host}/character/{quote(region)}/{quote(server_name)}/{quote(character_name)}"
+    )
 
 
 def format_fflogs_character_record(record: dict) -> str:
@@ -2955,7 +3453,9 @@ def format_fflogs_character_logs(
     region: str,
 ) -> str:
     character_name = str(character.get("name") or query.character_name)
-    server = character.get("server") if isinstance(character.get("server"), dict) else {}
+    server = (
+        character.get("server") if isinstance(character.get("server"), dict) else {}
+    )
     server_name = str(server.get("name") or query.server_name)
     records = collect_fflogs_character_records(character)
     lines = [
@@ -2999,14 +3499,18 @@ async def create_character_logs_text(
     errors = []
     for host, region, source_label in candidates:
         try:
-            character = await fetch_fflogs_character_logs(query, host, region, client_id, client_secret)
+            character = await fetch_fflogs_character_logs(
+                query, host, region, client_id, client_secret
+            )
         except Exception as exc:
             detail = exception_detail(exc)
             logger.warning(f"FFLogs 角色查询失败 ({source_label}): {detail}")
             errors.append(f"{source_label}: {detail}")
             continue
         if character:
-            return format_fflogs_character_logs(query, character, source_label, host, region)
+            return format_fflogs_character_logs(
+                query, character, source_label, host, region
+            )
 
     if errors:
         return "FFLogs 角色查询失败，请检查插件日志或稍后再试。"
@@ -3061,13 +3565,21 @@ def format_party_updated_at(updated_at: str) -> str:
 def format_party_finder_api_entry(index: int, listing: dict) -> str:
     category_now = party_optional_text(listing.get("category"))
     if not category_now and listing.get("category_id") is not None:
-        category_label = PARTY_CATEGORY_ID_LABELS.get(int(listing["category_id"]), f"分类ID {listing['category_id']}")
+        category_label = PARTY_CATEGORY_ID_LABELS.get(
+            int(listing["category_id"]), f"分类ID {listing['category_id']}"
+        )
     else:
-        category_label = PARTY_CATEGORY_LABELS.get(category_now, category_now or "未知分类")
+        category_label = PARTY_CATEGORY_LABELS.get(
+            category_now, category_now or "未知分类"
+        )
     duty_now = party_optional_text(listing.get("duty")) or "无"
     description_now = party_optional_text(listing.get("description")) or "无描述"
-    creator_now = party_optional_text(listing.get("name") or listing.get("player_name")) or "未知"
-    world_now = party_optional_text(listing.get("created_world") or listing.get("home_world"))
+    creator_now = (
+        party_optional_text(listing.get("name") or listing.get("player_name")) or "未知"
+    )
+    world_now = party_optional_text(
+        listing.get("created_world") or listing.get("home_world")
+    )
     if not world_now:
         world_id = listing.get("created_world_id") or listing.get("home_world_id")
         world_now = f"世界ID {world_id}" if world_id else "未知世界"
@@ -3077,15 +3589,25 @@ def format_party_finder_api_entry(index: int, listing: dict) -> str:
     total_now = ""
     if filled is not None and available is not None:
         try:
-            total_now = f"{filled}/{int(filled) + int(available)}"
+            total_now = f"{filled}/{int(available)}"
         except (TypeError, ValueError):
             total_now = f"{filled}/{available}"
 
     item_level = listing.get("min_item_level")
     item_level_text = f"IL {item_level}" if item_level else ""
-    time_left = format_party_time_left(listing.get("time_left") or listing.get("time_left_seconds"))
-    updated_text = format_party_updated_at(party_optional_text(listing.get("updated_at")))
-    meta_parts = [f"{creator_now} @ {world_now}", total_now, item_level_text, time_left, updated_text]
+    time_left = format_party_time_left(
+        listing.get("time_left") or listing.get("time_left_seconds")
+    )
+    updated_text = format_party_updated_at(
+        party_optional_text(listing.get("updated_at"))
+    )
+    meta_parts = [
+        f"{creator_now} @ {world_now}",
+        total_now,
+        item_level_text,
+        time_left,
+        updated_text,
+    ]
     meta_text = " | ".join(part for part in meta_parts if part)
 
     text_now = f"{index:02d}. [{category_label}] {duty_now}\n"
@@ -3105,7 +3627,9 @@ def xivapi_field_text(row: dict | None, *path: str) -> str:
     return party_optional_text(current)
 
 
-async def get_xivapi_sheet_rows(sheet: str, row_ids: set[int], fields: str) -> dict[int, dict]:
+async def get_xivapi_sheet_rows(
+    sheet: str, row_ids: set[int], fields: str
+) -> dict[int, dict]:
     ids = sorted(row_id for row_id in row_ids if row_id)
     if not ids:
         return {}
@@ -3124,7 +3648,11 @@ async def get_xivapi_sheet_rows(sheet: str, row_ids: set[int], fields: str) -> d
     rows = payload.get("rows")
     if not isinstance(rows, list):
         return {}
-    return {int(row["row_id"]): row for row in rows if isinstance(row, dict) and row.get("row_id") is not None}
+    return {
+        int(row["row_id"]): row
+        for row in rows
+        if isinstance(row, dict) and row.get("row_id") is not None
+    }
 
 
 async def load_cn_world_names() -> dict[str, dict]:
@@ -3154,8 +3682,17 @@ async def load_cn_world_names() -> dict[str, dict]:
             row_id = row.get("row_id")
             name = xivapi_field_text(row, "Name")
             data_centre = xivapi_field_text(row, "DataCenter", "Name")
-            if row_id and row_id >= 1000 and name and data_centre in CN_WORLD_DATA_CENTRES:
-                worlds[name] = {"id": int(row_id), "data_centre": data_centre, "name": name}
+            if (
+                row_id
+                and row_id >= 1000
+                and name
+                and data_centre in CN_WORLD_DATA_CENTRES
+            ):
+                worlds[name] = {
+                    "id": int(row_id),
+                    "data_centre": data_centre,
+                    "name": name,
+                }
 
         last_row_id = rows[-1].get("row_id")
         if not last_row_id or last_row_id in seen_after:
@@ -3176,7 +3713,7 @@ async def resolve_party_world(search_terms: list[str]) -> tuple[dict | None, lis
     for index, term in enumerate(search_terms):
         world = worlds.get(term)
         if world:
-            remain_terms = search_terms[:index] + search_terms[index + 1:]
+            remain_terms = search_terms[:index] + search_terms[index + 1 :]
             return world, remain_terms
     return None, search_terms
 
@@ -3219,10 +3756,12 @@ def normalize_house_area_name(value: str | None) -> str | None:
 
 
 def parse_house_area_token(token: str) -> tuple[str | None, str]:
-    area_labels = sorted(set(HOUSE_AREA_NAMES) | set(HOUSE_AREA_ALIASES), key=len, reverse=True)
+    area_labels = sorted(
+        set(HOUSE_AREA_NAMES) | set(HOUSE_AREA_ALIASES), key=len, reverse=True
+    )
     for label in area_labels:
         if token.startswith(label):
-            return normalize_house_area_name(label), token[len(label):]
+            return normalize_house_area_name(label), token[len(label) :]
     return None, token
 
 
@@ -3345,34 +3884,44 @@ async def create_house_text(query: HouseQuery) -> str:
         matched = [item for item in matched if item.get("Area") == area_index]
         filters.append(query.area_name)
     if query.ward is not None:
-        matched = [item for item in matched if int(item.get("Slot") or 0) + 1 == query.ward]
+        matched = [
+            item for item in matched if int(item.get("Slot") or 0) + 1 == query.ward
+        ]
         filters.append(f"{query.ward}区")
     if query.plot_id is not None:
-        matched = [item for item in matched if int(item.get("ID") or 0) == query.plot_id]
+        matched = [
+            item for item in matched if int(item.get("ID") or 0) == query.plot_id
+        ]
         filters.append(f"{query.plot_id}号")
     if query.size_name:
         size_index = HOUSE_SIZE_NAMES.index(query.size_name)
         matched = [item for item in matched if item.get("Size") == size_index]
         filters.append(query.size_name)
-    matched.sort(key=lambda item: (int(item.get("Slot") or 0), int(item.get("ID") or 0)))
+    matched.sort(
+        key=lambda item: (int(item.get("Slot") or 0), int(item.get("ID") or 0))
+    )
 
     filter_text = " ".join(filters) if filters else "全部"
     total = len(matched)
-    shown = matched[:query.limit]
+    shown = matched[: query.limit]
     title = f"【{query.server_name}空房】筛选：{filter_text}  数量：{total}"
     if not matched:
         return title + "\n没空房子了"
 
     lines = [title, "────────────────────────"]
     if total > len(shown):
-        lines.append(f"仅显示前 {len(shown)} 条，可在命令末尾添加数量，最多 {HOUSE_MAX_LISTINGS} 条。")
+        lines.append(
+            f"仅显示前 {len(shown)} 条，可在命令末尾添加数量，最多 {HOUSE_MAX_LISTINGS} 条。"
+        )
     for index, item in enumerate(shown, start=1):
         area_name = HOUSE_AREA_NAMES[int(item.get("Area") or 0)]
         size_name = HOUSE_SIZE_NAMES[int(item.get("Size") or 0)]
         slot = int(item.get("Slot") or 0) + 1
         plot_id = int(item.get("ID") or 0)
         price = int(item.get("Price") or 0)
-        purchase_type = HOUSE_PURCHASE_TYPES.get(int(item.get("PurchaseType") or 0), "未知")
+        purchase_type = HOUSE_PURCHASE_TYPES.get(
+            int(item.get("PurchaseType") or 0), "未知"
+        )
         region_type = HOUSE_REGION_TYPES.get(int(item.get("RegionType") or 0), "未知")
         last_seen = format_house_time(item.get("LastSeen"))
         lines.append(
@@ -3398,7 +3947,9 @@ async def enrich_party_finder_v2_listings(listings: list[dict]) -> list[dict]:
 
     world_rows, duty_rows = await asyncio.gather(
         get_xivapi_sheet_rows("World", world_ids, "Name,DataCenter.Name"),
-        get_xivapi_sheet_rows("ContentFinderCondition", duty_ids, "Name,ContentType.Name"),
+        get_xivapi_sheet_rows(
+            "ContentFinderCondition", duty_ids, "Name,ContentType.Name"
+        ),
     )
 
     enriched = []
@@ -3534,14 +4085,19 @@ async def get_party_finder_entries_api_v2(
     if not listings:
         return None
 
-    valid_listings = [listing for listing in listings[:fetch_limit] if isinstance(listing, dict)]
+    valid_listings = [
+        listing for listing in listings[:fetch_limit] if isinstance(listing, dict)
+    ]
     enriched_listings = await enrich_party_finder_v2_listings(valid_listings)
     filtered_listings = [
         listing
         for listing in enriched_listings
         if party_finder_matches_search(listing, search_text)
     ][:limit]
-    return [normalize_party_finder_entry(index, listing) for index, listing in enumerate(filtered_listings, start=1)]
+    return [
+        normalize_party_finder_entry(index, listing)
+        for index, listing in enumerate(filtered_listings, start=1)
+    ]
 
 
 async def get_party_finder_entries_html(
@@ -3596,7 +4152,9 @@ async def get_party_finder_entries_html(
         updated_now = strip_html(meta_list[index * 4 + 3])
         total_now = strip_html(total_list[index])
         if search_text:
-            search_area = f"{duty_now} {description_now} {creator_now} {world_now}".lower()
+            search_area = (
+                f"{duty_now} {description_now} {creator_now} {world_now}".lower()
+            )
             if search_text.lower() not in search_area:
                 continue
         entries.append(
@@ -3673,7 +4231,7 @@ async def get_party_finder_entries(
     "astrbot_plugin_tataru",
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
-    "1.0.1",
+    PLUGIN_VERSION,
     "https://github.com/jawwe/astrbot_plugin_tataru",
 )
 class TataruPlugin(Star):
@@ -3692,7 +4250,9 @@ class TataruPlugin(Star):
         logger.info("Tataru AstrBot plugin initialized.")
 
     def default_calendar_server(self) -> str:
-        return "国际服" if bool(self.config.get("use_global_calendar", False)) else "国服"
+        return (
+            "国际服" if bool(self.config.get("use_global_calendar", False)) else "国服"
+        )
 
     def weibo_cookie(self) -> str:
         return str(self.config.get("weibo_cookie", "") or "").strip()
@@ -3712,8 +4272,15 @@ class TataruPlugin(Star):
     def ffxiv_icon_font_path(self) -> str:
         return str(self.config.get("ffxiv_icon_font_path", "") or "").strip()
 
-    def render_text_image(self, text: str, output_path: Path, width_now: int = 20) -> None:
-        text_to_image(text, output_path, width_now=width_now, font_path=self.configured_font_path())
+    def render_text_image(
+        self, text: str, output_path: Path, width_now: int = 20
+    ) -> None:
+        text_to_image(
+            text,
+            output_path,
+            width_now=width_now,
+            font_path=self.configured_font_path(),
+        )
 
     @filter.command("帮帮忙")
     async def help(self, event: AstrMessageEvent):
@@ -3734,7 +4301,9 @@ class TataruPlugin(Star):
     async def calendar(self, event: AstrMessageEvent):
         """获取FF近期活动日历。"""
         requested_server = command_args(event.message_str, "日历") or None
-        server = normalize_calendar_server(requested_server, self.default_calendar_server())
+        server = normalize_calendar_server(
+            requested_server, self.default_calendar_server()
+        )
         await self.ensure_calendar(server)
         yield event.plain_result(self.create_calendar_text(server))
 
@@ -3761,8 +4330,15 @@ class TataruPlugin(Star):
     async def party_finder(self, event: AstrMessageEvent):
         """获取指定大区招募板信息。"""
         query = parse_party_finder_query(command_args(event.message_str, "招募"))
-        if not query.data_centre and not query.search_terms and not query.category and not query.job_ids:
-            yield event.plain_result("查招募版格式：招募 (大区或服务器) (分类或关键词或职业) (数量)\n例：招募 陆行鸟 随机任务")
+        if (
+            not query.data_centre
+            and not query.search_terms
+            and not query.category
+            and not query.job_ids
+        ):
+            yield event.plain_result(
+                "查招募版格式：招募 (大区或服务器) (分类或关键词或职业) (数量)\n例：招募 陆行鸟 随机任务"
+            )
             return
 
         try:
@@ -3792,17 +4368,26 @@ class TataruPlugin(Star):
             return
 
         if not entries:
-            category_hint = f"「{PARTY_CATEGORY_LABELS.get(query.category, query.category)}」" if query.category else ""
+            category_hint = (
+                f"「{PARTY_CATEGORY_LABELS.get(query.category, query.category)}」"
+                if query.category
+                else ""
+            )
             search_hint = f"包含「{search_text}」的" if search_text else ""
             job_hint = "指定职业的" if query.job_ids else ""
-            yield event.plain_result(f"当前{scope_label}{category_hint}{search_hint}{job_hint}无人上传招募信息")
+            yield event.plain_result(
+                f"当前{scope_label}{category_hint}{search_hint}{job_hint}无人上传招募信息"
+            )
             return
 
         image_components = []
         for index in range(0, len(entries), PARTY_FINDER_CARDS_PER_IMAGE):
-            image_path = self.cache_dir / f"party_finder_{index // PARTY_FINDER_CARDS_PER_IMAGE}.jpg"
+            image_path = (
+                self.cache_dir
+                / f"party_finder_{index // PARTY_FINDER_CARDS_PER_IMAGE}.jpg"
+            )
             render_party_finder_cards(
-                entries[index:index + PARTY_FINDER_CARDS_PER_IMAGE],
+                entries[index : index + PARTY_FINDER_CARDS_PER_IMAGE],
                 image_path,
                 font_path=self.configured_font_path(),
                 icon_font_path=self.ffxiv_icon_font_path(),
@@ -3844,7 +4429,9 @@ class TataruPlugin(Star):
         """查询市场物价。"""
         market_query = await parse_market_query(command_args(event.message_str, "价格"))
         if not market_query.item_name:
-            yield event.plain_result("查物价格式：价格 (大区/服务器) 物品名 (HQ) (数量)\n例：价格 陆行鸟 铁矿 HQ 10")
+            yield event.plain_result(
+                "查物价格式：价格 (大区/服务器) 物品名 (HQ) (数量)\n例：价格 陆行鸟 铁矿 HQ 10"
+            )
             return
 
         try:
@@ -3890,7 +4477,7 @@ class TataruPlugin(Star):
         rows = parts[2:]
         components = []
         for index in range(0, len(rows), 30):
-            page_text = header + "\n" + "\n".join(rows[index:index + 30])
+            page_text = header + "\n" + "\n".join(rows[index : index + 30])
             image_path = self.cache_dir / f"house_{index // 30}.jpg"
             self.render_text_image(page_text, image_path, width_now=44)
             components.append(Comp.Image.fromFileSystem(str(image_path)))
@@ -3899,7 +4486,9 @@ class TataruPlugin(Star):
     @filter.command("输出")
     async def logs_dps(self, event: AstrMessageEvent):
         """查询FFLogs输出分段。"""
-        logs_query = parse_logs_query(command_args(event.message_str, "输出"), self.default_logs_cn_source())
+        logs_query = parse_logs_query(
+            command_args(event.message_str, "输出"), self.default_logs_cn_source()
+        )
         yield event.plain_result(
             await create_logs_text(
                 logs_query,
@@ -3958,7 +4547,9 @@ class TataruPlugin(Star):
             await asyncio.sleep(60 * 60)
 
     def calendar_cache_path(self, server: str) -> Path:
-        return self.cache_dir / f"calendar_{'global' if server == '国际服' else 'cn'}.ics"
+        return (
+            self.cache_dir / f"calendar_{'global' if server == '国际服' else 'cn'}.ics"
+        )
 
     async def download_calendar_once(self, server: str) -> bool:
         sources = CALENDAR_SOURCES[server]
@@ -4013,8 +4604,18 @@ class TataruPlugin(Star):
             if end_date < today:
                 continue
 
-            info_item = [end_info, start_info, component.get("summary"), component.get("DESCRIPTION")]
-            sortable_item = (end_date, start_date, str(component.get("summary")), info_item)
+            info_item = [
+                end_info,
+                start_info,
+                component.get("summary"),
+                component.get("DESCRIPTION"),
+            ]
+            sortable_item = (
+                end_date,
+                start_date,
+                str(component.get("summary")),
+                info_item,
+            )
             days_left = (end_date - today).days
             if days_left <= 2:
                 warn_ics.append(sortable_item)
@@ -4042,7 +4643,9 @@ class TataruPlugin(Star):
                 result += format_calendar_item(item[3]) + "\n"
 
         if server in self.last_calendar_download_time:
-            result += "\n日历更新时间: " + str(self.last_calendar_download_time[server]).split(".")[0].replace("-", ".")
+            result += "\n日历更新时间: " + str(
+                self.last_calendar_download_time[server]
+            ).split(".")[0].replace("-", ".")
         else:
             result += "\n日历更新时间: 使用本地缓存"
         return result
@@ -4065,7 +4668,9 @@ class TataruPlugin(Star):
         try:
             bili_url = await get_bili_url()
             message = await get_bili_detail(bili_url)
-            cache_path.write_text(json.dumps({str(period): message}, ensure_ascii=False), encoding="utf-8")
+            cache_path.write_text(
+                json.dumps({str(period): message}, ensure_ascii=False), encoding="utf-8"
+            )
             image_path = self.cache_dir / "nuannuan.jpg"
             self.render_text_image(message, image_path, width_now=25)
             return event.image_result(str(image_path))
