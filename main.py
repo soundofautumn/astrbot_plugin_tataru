@@ -241,6 +241,17 @@ PARTY_CATEGORY_ID_LABELS = {
     for category, category_id in PARTY_CATEGORY_IDS.items()
     if category in PARTY_CATEGORY_LABELS
 }
+PARTY_DUTY_ALIAS_IDS = {
+    "妖星乱舞绝境战": [1094],
+    "绝妖星乱舞": [1094],
+    "绝妖星": [1094],
+    "绝妖": [1094],
+    "妖星": [1094],
+}
+PARTY_DUTY_ID_NAME_OVERRIDES = {
+    1094: "妖星乱舞绝境战",
+}
+PARTY_DUTY_ID_CACHE: dict[str, list[int]] = {}
 PARTY_CATEGORY_ALIASES = {
     "随机任务": "DutyRoulette",
     "随机": "DutyRoulette",
@@ -1294,6 +1305,57 @@ def normalize_party_job(value: str | None) -> int | None:
         return None
     key = re.sub(r"\s+", "", value.strip().lower())
     return PARTY_JOB_ALIASES.get(key)
+
+
+def normalize_party_duty_key(value: str | None) -> str:
+    return re.sub(r"\s+", "", (value or "").strip().lower())
+
+
+async def resolve_party_duty_ids(search_text: str | None) -> list[int]:
+    key = normalize_party_duty_key(search_text)
+    if not key:
+        return []
+    if key in PARTY_DUTY_ID_CACHE:
+        return PARTY_DUTY_ID_CACHE[key]
+    if key in PARTY_DUTY_ALIAS_IDS:
+        PARTY_DUTY_ID_CACHE[key] = PARTY_DUTY_ALIAS_IDS[key]
+        return PARTY_DUTY_ID_CACHE[key]
+
+    query = f'Name~"{search_text}"'
+    params = urlencode(
+        {
+            "query": query,
+            "sheets": "ContentFinderCondition",
+            "fields": "Name,ContentType.Name",
+            "language": "chs",
+            "limit": 20,
+        }
+    )
+    try:
+        payload = await aiohttp_get(
+            f"{XIVAPI_BASE_URL}/search?{params}",
+            timeout_seconds=20,
+            use_api_user_agent=True,
+        )
+    except Exception as exc:
+        logger.warning(f"招募副本名动态解析失败: {exc}")
+        return []
+
+    results = payload.get("results") if isinstance(payload, dict) else None
+    duty_ids: list[int] = []
+    if isinstance(results, list):
+        for row in results:
+            if not isinstance(row, dict):
+                continue
+            row_id = row.get("row_id")
+            name = xivapi_field_text(row, "Name")
+            if not row_id or not name:
+                continue
+            if key in normalize_party_duty_key(name):
+                duty_ids.append(int(row_id))
+
+    PARTY_DUTY_ID_CACHE[key] = duty_ids
+    return duty_ids
 
 
 def parse_party_finder_query(query: str) -> PartyFinderQuery:
@@ -4026,7 +4088,12 @@ async def enrich_party_finder_v2_listings(listings: list[dict]) -> list[dict]:
         item["created_world"] = xivapi_field_text(created_world, "Name")
         item["home_world"] = xivapi_field_text(home_world, "Name")
         item["datacenter"] = xivapi_field_text(created_world, "DataCenter", "Name")
-        item["duty"] = xivapi_field_text(duty, "Name") or "无"
+        duty_id = int(item.get("duty_id") or 0)
+        item["duty"] = (
+            xivapi_field_text(duty, "Name")
+            or PARTY_DUTY_ID_NAME_OVERRIDES.get(duty_id)
+            or "无"
+        )
         enriched.append(item)
     return enriched
 
@@ -4105,9 +4172,10 @@ async def get_party_finder_entries_api_v2(
     category: str | None = None,
     search_text: str | None = None,
     job_ids: list[int] | None = None,
+    duty_ids: list[int] | None = None,
     limit: int = 10,
 ) -> list[dict] | None:
-    fetch_limit = 100 if search_text else max(1, min(limit, 100))
+    fetch_limit = 100 if search_text and not duty_ids else max(1, min(limit, 100))
     params = {
         "page": 1,
         "per_page": fetch_limit,
@@ -4122,15 +4190,25 @@ async def get_party_finder_entries_api_v2(
     if job_ids:
         params["job_ids"] = ",".join(str(job_id) for job_id in job_ids)
 
-    param_sets = []
+    scope_param_sets = []
     if world_id:
         created_world_params = dict(params)
         created_world_params["created_world_id"] = world_id
         home_world_params = dict(params)
         home_world_params["home_world_id"] = world_id
-        param_sets.extend([created_world_params, home_world_params])
+        scope_param_sets.extend([created_world_params, home_world_params])
     else:
-        param_sets.append(params)
+        scope_param_sets.append(params)
+
+    param_sets = []
+    if duty_ids:
+        for scope_params in scope_param_sets:
+            for duty_id in duty_ids:
+                duty_params = dict(scope_params)
+                duty_params["duty_id"] = duty_id
+                param_sets.append(duty_params)
+    else:
+        param_sets = scope_param_sets
 
     listings = []
     seen_ids = set()
@@ -4161,7 +4239,7 @@ async def get_party_finder_entries_api_v2(
     filtered_listings = [
         listing
         for listing in enriched_listings
-        if party_finder_matches_search(listing, search_text)
+        if duty_ids or party_finder_matches_search(listing, search_text)
     ][:limit]
     return [
         normalize_party_finder_entry(index, listing)
@@ -4256,6 +4334,7 @@ async def get_party_finder_entries(
     category: str | None = None,
     search_text: str | None = None,
     job_ids: list[int] | None = None,
+    duty_ids: list[int] | None = None,
     limit: int = 10,
 ) -> list[dict]:
     try:
@@ -4265,12 +4344,15 @@ async def get_party_finder_entries(
             category=category,
             search_text=search_text,
             job_ids=job_ids,
+            duty_ids=duty_ids,
             limit=limit,
         )
         if v2_entries is not None:
             return v2_entries
     except Exception as exc:
         logger.warning(f"招募板 API v2 获取失败，尝试 API v1: {exc}")
+    if duty_ids:
+        return []
 
     try:
         api_entries = await get_party_finder_entries_api_v1(
@@ -4420,6 +4502,10 @@ class TataruPlugin(Star):
         if world:
             data_centre = data_centre or world["data_centre"]
         scope_label = world["name"] if world else (data_centre or "全服")
+        duty_ids = await resolve_party_duty_ids(search_text)
+        api_search_text = None if duty_ids else search_text
+        if duty_ids:
+            logger.info(f"招募副本名解析为 duty_id: {search_text} -> {duty_ids}")
 
         try:
             entries = await get_party_finder_entries(
@@ -4427,8 +4513,9 @@ class TataruPlugin(Star):
                 world_name=world["name"] if world else None,
                 world_id=world["id"] if world else None,
                 category=query.category,
-                search_text=search_text,
+                search_text=api_search_text,
                 job_ids=query.job_ids,
+                duty_ids=duty_ids,
                 limit=query.limit,
             )
         except Exception as exc:
