@@ -400,6 +400,304 @@ PARTY_JOB_ALIASES = {
 }
 
 
+# ── SuMemo 常量 ───────────────────────────────────────────
+
+SUMEMO_DEFAULT_BASE_URL = "https://sumemo.diemoe.net"
+SUMEMO_REQUEST_TIMEOUT = 20
+
+SUMEMO_JOB_ID_NAME: dict[int, str] = {
+    19: "骑士",
+    20: "武僧",
+    21: "战士",
+    22: "龙骑士",
+    23: "诗人",
+    24: "白魔法师",
+    25: "黑魔法师",
+    27: "召唤师",
+    28: "学者",
+    30: "忍者",
+    31: "机工士",
+    32: "暗黑骑士",
+    33: "占星术士",
+    34: "武士",
+    35: "赤魔法师",
+    36: "青魔法师",
+    37: "绝枪战士",
+    38: "舞者",
+    39: "钐镰客",
+    40: "贤者",
+    41: "蝰蛇剑士",
+    42: "绘灵法师",
+    43: "魔兽使",
+}
+
+SUMEMO_KNOWN_ZONES: dict[int, str] = {
+    1363: "妖星乱舞绝境战",
+}
+
+
+# ── SuMemo API 辅助函数 ──────────────────────────────────
+
+
+def _sumemo_api_headers(api_key: str) -> dict[str, str]:
+    headers: dict[str, str] = {
+        "User-Agent": PLUGIN_USER_AGENT,
+        "Accept": "application/json",
+    }
+    if api_key:
+        headers["X-Auth-Key"] = api_key
+    return headers
+
+
+async def _sumemo_get(
+    url: str,
+    api_key: str = "",
+    timeout: int = SUMEMO_REQUEST_TIMEOUT,
+):
+    timeout_obj = aiohttp.ClientTimeout(total=timeout)
+    try:
+        async with aiohttp.ClientSession(
+            timeout=timeout_obj, headers=_sumemo_api_headers(api_key)
+        ) as session:
+            async with session.get(url) as resp:
+                if resp.status == 404:
+                    return None
+                if resp.status >= 400:
+                    text = await resp.text()
+                    logger.warning(
+                        "SuMemo API error %d: %.300s", resp.status, text
+                    )
+                    return None
+                return await resp.json()
+    except aiohttp.ClientError as exc:
+        logger.warning("SuMemo API 请求失败: %s -> %s", url, exc)
+        return None
+    except Exception as exc:
+        logger.warning("SuMemo API 未知错误: %s -> %s", url, exc)
+        return None
+
+
+def _sumemo_resolve_base_url(base_url: str | None) -> str:
+    url = (base_url or "").strip().rstrip("/")
+    return url if url else SUMEMO_DEFAULT_BASE_URL
+
+
+async def sumemo_get_member_overview(
+    name: str, server: str, base_url: str | None = None, api_key: str = ""
+) -> dict | None:
+    url = f"{_sumemo_resolve_base_url(base_url)}/member/{name}@{server}/overview"
+    data = await _sumemo_get(url, api_key)
+    return data if isinstance(data, dict) else None
+
+
+async def sumemo_get_member_zone_best(
+    name: str, server: str, zone_id: int,
+    base_url: str | None = None, api_key: str = ""
+) -> dict | None:
+    url = f"{_sumemo_resolve_base_url(base_url)}/member/{name}@{server}/{zone_id}/best"
+    data = await _sumemo_get(url, api_key)
+    return data if isinstance(data, dict) else None
+
+
+async def sumemo_get_member_parties(
+    name: str, server: str, base_url: str | None = None, api_key: str = ""
+) -> dict | None:
+    url = f"{_sumemo_resolve_base_url(base_url)}/member/{name}@{server}/parties"
+    data = await _sumemo_get(url, api_key)
+    return data if isinstance(data, dict) else None
+
+
+async def sumemo_get_global_summary(
+    base_url: str | None = None, api_key: str = ""
+) -> dict | None:
+    url = f"{_sumemo_resolve_base_url(base_url)}/stats/global"
+    data = await _sumemo_get(url, api_key)
+    return data if isinstance(data, dict) else None
+
+
+async def sumemo_list_zone_summaries(
+    base_url: str | None = None, api_key: str = ""
+) -> list[dict] | None:
+    url = f"{_sumemo_resolve_base_url(base_url)}/stats/zones"
+    data = await _sumemo_get(url, api_key)
+    return data if isinstance(data, list) else None
+
+
+# ── SuMemo 格式化函数 ────────────────────────────────────
+
+
+def _sumemo_job_name(job_id: int) -> str:
+    return SUMEMO_JOB_ID_NAME.get(job_id, f"职业#{job_id}")
+
+
+def _sumemo_zone_name(zone_id: int, duty: dict | None = None) -> str:
+    if duty:
+        return duty.get("name") or SUMEMO_KNOWN_ZONES.get(zone_id) or f"副本 {zone_id}"
+    return SUMEMO_KNOWN_ZONES.get(zone_id, f"副本 {zone_id}")
+
+
+def _sumemo_format_nanos(ns: int) -> str:
+    if ns <= 0:
+        return "0s"
+    total_seconds = ns / 1_000_000_000
+    minutes = int(total_seconds // 60)
+    seconds = int(total_seconds % 60)
+    if minutes:
+        return f"{minutes}分{seconds:02d}秒"
+    return f"{seconds}秒"
+
+
+def _sumemo_player_main_job(fight: dict) -> int | None:
+    players = fight.get("players", [])
+    if players and isinstance(players, list):
+        for player in players:
+            if isinstance(player, dict):
+                return player.get("job_id")
+    return None
+
+
+def sumemo_format_overview(data: dict) -> str:
+    name = data.get("name", "?")
+    server = data.get("server", "?")
+    zones: dict[str, dict] = data.get("zones", {}) or {}
+    lines = [f"【SuMemo 开荒总览】{name}@{server}"]
+    if not zones:
+        lines.append("暂无开荒记录。")
+        return "\n".join(lines)
+    sorted_zones = sorted(zones.items(), key=lambda x: int(x[0]))
+    for zone_id_str, zone_data in sorted_zones:
+        zone_id = int(zone_id_str)
+        duty = zone_data.get("duty", {})
+        best = zone_data.get("best")
+        if best is None:
+            lines.append(f"  {_sumemo_zone_name(zone_id, duty)}  —  无记录")
+            continue
+        clear = best.get("clear", False)
+        progress = best.get("progress") or {}
+        phase_name = progress.get("phase_name", "")
+        enemy_hp = progress.get("enemy_hp")
+        progress_text = "✓ 已通关" if clear else "○ 开荒中"
+        if phase_name and not clear:
+            progress_text = f"● {phase_name}"
+            if enemy_hp is not None:
+                progress_text += f" ({enemy_hp:.1f}%)"
+        fight = best.get("fight")
+        if fight:
+            job_id = _sumemo_player_main_job(fight)
+            if job_id:
+                progress_text += f" [{_sumemo_job_name(job_id)}]"
+        lines.append(f"  {_sumemo_zone_name(zone_id, duty)}  {progress_text}")
+    return "\n".join(lines)
+
+
+def sumemo_format_zone_best(data: dict) -> str:
+    name = data.get("name", "?")
+    server = data.get("server", "?")
+    zone_id = data.get("zone_id", 0)
+    clear = data.get("clear", False)
+    progress = data.get("progress") or {}
+    fight = data.get("fight")
+    zone_label = _sumemo_zone_name(zone_id)
+    lines = [f"【SuMemo 副本进度】{name}@{server} — {zone_label}"]
+    phase_name = progress.get("phase_name", "")
+    enemy_hp = progress.get("enemy_hp")
+    status = "✓ 已通关" if clear else "○ 开荒中"
+    detail = ""
+    if phase_name and not clear:
+        detail = f" (P{phase_name}"
+        if enemy_hp is not None:
+            detail += f" {enemy_hp:.1f}%"
+        detail += ")"
+    lines.append(f"进度：{status}{detail}")
+    if fight:
+        duration = fight.get("duration")
+        if duration:
+            lines.append(f"时长：{_sumemo_format_nanos(duration)}")
+        players = fight.get("players", [])
+        if players:
+            lines.append("阵容：")
+            for p in players:
+                j_name = _sumemo_job_name(p.get("job_id", 0))
+                p_name = p.get("name", "?")
+                p_server = p.get("server", "")
+                deaths = p.get("death_count", 0)
+                death_text = f" (死亡 {deaths})" if deaths else ""
+                lines.append(f"  {j_name} {p_name}@{p_server}{death_text}")
+    return "\n".join(lines)
+
+
+def sumemo_format_parties(data: dict) -> str:
+    member = data.get("member", {})
+    name = member.get("name", "?")
+    server = member.get("server", "?")
+    parties = data.get("parties", [])
+    lines = [f"【SuMemo 高难队伍】{name}@{server}"]
+    if not parties:
+        lines.append("暂无常见高难队伍记录。")
+        return "\n".join(lines)
+    for i, party in enumerate(parties, 1):
+        members = party.get("members", [])
+        session_count = party.get("session_count", 0)
+        last_seen = str(party.get("last_seen", ""))[:10]
+        zone_ids = party.get("zone_ids", [])
+        zone_text = ""
+        if zone_ids:
+            zone_labels = [SUMEMO_KNOWN_ZONES.get(z, f"#{z}") for z in zone_ids[:3]]
+            zone_text = f" [{', '.join(zone_labels)}]"
+        member_names = []
+        for m in members:
+            m_name = m.get("name", "?")
+            m_server = m.get("server", "")
+            hidden = "🔒" if m.get("hidden") else ""
+            member_names.append(f"{m_name}@{m_server}{hidden}")
+        lines.append(
+            f"  #{i} {', '.join(member_names[:8])}"
+            f"{'...' if len(member_names) > 8 else ''}"
+        )
+        lines.append(
+            f"      场次 {session_count} | 最近 {last_seen}{zone_text}"
+        )
+    return "\n".join(lines)
+
+
+def sumemo_format_global_summary(data: dict) -> str:
+    fights = data.get("fights", 0)
+    zones = data.get("zones", 0)
+    members = data.get("members", 0)
+    refreshed = str(data.get("refreshed_at", ""))[:19].replace("T", " ")
+    return (
+        f"【SuMemo 全站统计】\n"
+        f"  总战斗数：{fights:,}\n"
+        f"  覆盖副本：{zones:,}\n"
+        f"  参与玩家：{members:,}\n"
+        f"  数据更新：{refreshed}"
+    )
+
+
+def sumemo_format_zone_summaries(summaries: list[dict]) -> str:
+    lines = ["【SuMemo 各副本统计】"]
+    if not summaries:
+        lines.append("暂无数据。")
+        return "\n".join(lines)
+    sorted_summaries = sorted(
+        summaries, key=lambda s: s.get("players", 0), reverse=True
+    )
+    for s in sorted_summaries:
+        zone_id = s.get("zone_id", 0)
+        players = s.get("players", 0)
+        cleared = s.get("cleared_players", 0)
+        fights = s.get("fights", 0)
+        cleared_fights = s.get("cleared_fights", 0)
+        zone_label = _sumemo_zone_name(zone_id)
+        progress_pct = f"{cleared / players * 100:.0f}%" if players else "0%"
+        lines.append(
+            f"  {zone_label}  "
+            f"玩家 {players:,} | 通关 {cleared:,} ({progress_pct}) | "
+            f"场次 {fights:,} | 通关场次 {cleared_fights:,}"
+        )
+    return "\n".join(lines)
+
+
 @dataclass
 class PartyFinderQuery:
     data_centre: str | None
@@ -1218,6 +1516,10 @@ def create_help_text() -> str:
 [输出 boss名 职业名 (国服) (rdps) (day2)] 查询FFLogs输出分段
 [logs 角色名 服务器名 (国服/国际服)] 查询角色FFLogs战绩
 [抽卡] 随机抽取一张FF14塔罗牌
+[进度 角色名@服务器] 查询角色 SuMemo 开荒总览
+[进度本 角色名@服务器 副本ID] 查询角色某副本开荒详情
+[进度队 角色名@服务器] 查询角色高难固定队
+[进度统计] 查看 SuMemo 全站统计数据
 """
 
 
@@ -4423,6 +4725,12 @@ class TataruPlugin(Star):
     def ffxiv_icon_font_path(self) -> str:
         return str(self.config.get("ffxiv_icon_font_path", "") or "").strip()
 
+    def sumemo_base_url(self) -> str:
+        return str(self.config.get("sumemo_base_url", "") or "").strip()
+
+    def sumemo_api_key(self) -> str:
+        return str(self.config.get("sumemo_api_key", "") or "").strip()
+
     def render_text_image(
         self, text: str, output_path: Path, width_now: int = 20
     ) -> None:
@@ -4672,6 +4980,171 @@ class TataruPlugin(Star):
         result = self.create_tarot_result(event)
         async for item in result:
             yield item
+
+    # ── SuMemo 开荒进度查询 ──
+
+    @filter.command("进度")
+    async def sumemo_progress(self, event: AstrMessageEvent):
+        """查询角色 SuMemo 开荒总览。"""
+        arg = command_args(event.message_str, "进度").strip()
+        if not arg or "@" not in arg:
+            yield event.plain_result(
+                "查进度格式：进度 角色名@服务器\n例：进度 一色彩羽@银泪湖"
+            )
+            return
+        name, _, server = arg.partition("@")
+        name = name.strip()
+        server = server.strip()
+        if not name or not server:
+            yield event.plain_result(
+                "格式有误，请使用：进度 角色名@服务器\n例：进度 一色彩羽@银泪湖"
+            )
+            return
+
+        try:
+            data = await sumemo_get_member_overview(
+                name, server,
+                base_url=self.sumemo_base_url(),
+                api_key=self.sumemo_api_key(),
+            )
+        except Exception as exc:
+            logger.warning(f"SuMemo 进度查询失败: {exc}")
+            yield event.plain_result("SuMemo 查询失败，请稍后再试")
+            return
+
+        if data is None:
+            yield event.plain_result(
+                f"未找到玩家 {name}@{server} 的开荒记录。\n"
+                "请确认角色名和服务器名正确，格式为 角色名@服务器。"
+            )
+            return
+
+        text = sumemo_format_overview(data)
+        image_path = self.cache_dir / "sumemo_overview.jpg"
+        self.render_text_image(text, image_path, width_now=36)
+        yield event.image_result(str(image_path))
+
+    @filter.command("进度本")
+    async def sumemo_zone(self, event: AstrMessageEvent):
+        """查询角色某副本开荒详情。"""
+        arg = command_args(event.message_str, "进度本").strip()
+        parts = arg.split()
+        if len(parts) < 2:
+            yield event.plain_result(
+                "查副本进度格式：进度本 角色名@服务器 副本ID\n"
+                "例：进度本 一色彩羽@银泪湖 104\n"
+                "常用副本ID：104=M12S门神 105=M12S本体 96=M4S 等"
+            )
+            return
+
+        user_part = parts[0]
+        if "@" not in user_part:
+            yield event.plain_result(
+                "格式有误，请使用：进度本 角色名@服务器 副本ID\n例：进度本 一色彩羽@银泪湖 104"
+            )
+            return
+
+        try:
+            zone_id = int(parts[1])
+        except ValueError:
+            yield event.plain_result(f"副本ID应为数字，收到了：{parts[1]}")
+            return
+
+        name, _, server = user_part.partition("@")
+        name = name.strip()
+        server = server.strip()
+
+        try:
+            data = await sumemo_get_member_zone_best(
+                name, server, zone_id,
+                base_url=self.sumemo_base_url(),
+                api_key=self.sumemo_api_key(),
+            )
+        except Exception as exc:
+            logger.warning(f"SuMemo 副本进度查询失败: {exc}")
+            yield event.plain_result("SuMemo 查询失败，请稍后再试")
+            return
+
+        if data is None:
+            yield event.plain_result(
+                f"未找到玩家 {name}@{server} 在副本 {zone_id} 的记录。"
+            )
+            return
+
+        text = sumemo_format_zone_best(data)
+        image_path = self.cache_dir / "sumemo_zone.jpg"
+        self.render_text_image(text, image_path, width_now=38)
+        yield event.image_result(str(image_path))
+
+    @filter.command("进度队")
+    async def sumemo_party(self, event: AstrMessageEvent):
+        """查询角色高难固定队。"""
+        arg = command_args(event.message_str, "进度队").strip()
+        if not arg or "@" not in arg:
+            yield event.plain_result(
+                "查固定队格式：进度队 角色名@服务器\n例：进度队 一色彩羽@银泪湖"
+            )
+            return
+        name, _, server = arg.partition("@")
+        name = name.strip()
+        server = server.strip()
+        if not name or not server:
+            yield event.plain_result(
+                "格式有误，请使用：进度队 角色名@服务器\n例：进度队 一色彩羽@银泪湖"
+            )
+            return
+
+        try:
+            data = await sumemo_get_member_parties(
+                name, server,
+                base_url=self.sumemo_base_url(),
+                api_key=self.sumemo_api_key(),
+            )
+        except Exception as exc:
+            logger.warning(f"SuMemo 队伍查询失败: {exc}")
+            yield event.plain_result("SuMemo 查询失败，请稍后再试")
+            return
+
+        if data is None:
+            yield event.plain_result(
+                f"未找到玩家 {name}@{server}，请确认角色名和服务器名正确。"
+            )
+            return
+
+        text = sumemo_format_parties(data)
+        image_path = self.cache_dir / "sumemo_party.jpg"
+        self.render_text_image(text, image_path, width_now=42)
+        yield event.image_result(str(image_path))
+
+    @filter.command("进度统计")
+    async def sumemo_stats(self, event: AstrMessageEvent):
+        """查看 SuMemo 全站统计数据。"""
+        try:
+            global_data = await sumemo_get_global_summary(
+                base_url=self.sumemo_base_url(),
+                api_key=self.sumemo_api_key(),
+            )
+            zone_summaries = await sumemo_list_zone_summaries(
+                base_url=self.sumemo_base_url(),
+                api_key=self.sumemo_api_key(),
+            )
+        except Exception as exc:
+            logger.warning(f"SuMemo 统计查询失败: {exc}")
+            yield event.plain_result("SuMemo 统计查询失败，请稍后再试")
+            return
+
+        if global_data is None:
+            yield event.plain_result("SuMemo 统计数据暂不可用，请稍后再试")
+            return
+
+        parts = [sumemo_format_global_summary(global_data)]
+        if zone_summaries:
+            parts.append(sumemo_format_zone_summaries(zone_summaries))
+
+        text = "\n\n".join(parts)
+        image_path = self.cache_dir / "sumemo_stats.jpg"
+        self.render_text_image(text, image_path, width_now=44)
+        yield event.image_result(str(image_path))
 
     async def create_tarot_result(self, event: AstrMessageEvent):
         if self.tarot_dict is None:
