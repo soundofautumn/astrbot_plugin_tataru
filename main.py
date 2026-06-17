@@ -562,13 +562,78 @@ def _sumemo_player_main_job(fight: dict) -> int | None:
     return None
 
 
+def _party_member_key(p: dict) -> frozenset:
+    """返回阵容的成员集合 key，用于判断同一阵容。"""
+    return frozenset(
+        f"{m.get('name','')}@{m.get('server','')}"
+        for m in p.get("members", [])
+    )
+
+
+def _format_relative_time(iso_str: str) -> str:
+    """将 ISO 时间字符串转为相对时间描述。"""
+    if not iso_str:
+        return ""
+    try:
+        t = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        diff = datetime.now(t.tzinfo) - t
+        if diff.days > 30:
+            return f"{diff.days // 30} 个月前"
+        if diff.days > 0:
+            return f"{diff.days} 天前"
+        if diff.seconds >= 3600:
+            return f"{diff.seconds // 3600} 小时前"
+        if diff.seconds >= 60:
+            return f"{diff.seconds // 60} 分钟前"
+        return "刚刚"
+    except (ValueError, TypeError):
+        return ""
+
+
+def _format_fight_time_range(fight: dict | None) -> str:
+    """从 fight 的 start_time + duration 格式化时间范围。"""
+    if not fight or not fight.get("start_time"):
+        return ""
+    try:
+        st = datetime.fromisoformat(str(fight["start_time"]).replace("Z", "+00:00"))
+        offset = datetime.now().astimezone().utcoffset() or st.utcoffset() or timedelta()
+        st_local = st + offset
+        dur_ns = fight.get("duration", 0) or 0
+        et_local = st_local + timedelta(seconds=dur_ns / 1_000_000_000)
+        return (
+            f"{st_local.month} 月 {st_local.day} 日  "
+            f"{st_local.hour}:{st_local.minute:02d} ~ "
+            f"{et_local.hour}:{et_local.minute:02d}"
+        )
+    except (ValueError, TypeError):
+        return ""
+
+
+def _format_progress_text(best: dict | None) -> str:
+    """从 best 提取最远进度文字。"""
+    if not best:
+        return ""
+    if best.get("clear", False):
+        return "已通关"
+    prog = best.get("progress") or {}
+    phase = prog.get("phase_name", "")
+    hp = prog.get("enemy_hp")
+    if phase and hp is not None:
+        return f"{phase} {hp:.1f}%"
+    if phase:
+        return phase
+    if hp is not None:
+        return f"{hp:.1f}%"
+    return ""
+
+
 def render_sumemo_overview_image(
     data: dict,
     output_path: Path,
     font_path: str | None = None,
     parties: list[dict] | None = None,
 ) -> None:
-    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，阵容合并展示。"""
+    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，同一阵容且时间相邻的合并。"""
     name = data.get("name", "?")
     server = data.get("server", "?")
     all_zones: dict[str, dict] = data.get("zones", {}) or {}
@@ -614,106 +679,55 @@ def render_sumemo_overview_image(
     duty = zone_data.get("duty", {})
     best = zone_data.get("best")
     zone_label = _sumemo_zone_name(zone_id, duty)
-
-    # ── 合并所有相关阵容 ──
-    merged_members: list[dict] = []
-    total_sessions = 0
-    latest_seen = ""
-    if parties:
-        seen = set()
-        for p in parties:
-            p_zone_ids = p.get("zone_ids", [])
-            if zone_id not in p_zone_ids:
-                continue
-            total_sessions += p.get("session_count", 0)
-            ls = str(p.get("last_seen", ""))
-            if ls > latest_seen:
-                latest_seen = ls
-            for m in p.get("members", []):
-                key = f"{m.get('name','')}@{m.get('server','')}"
-                if key not in seen:
-                    seen.add(key)
-                    merged_members.append(m)
-
-    # ── 时间信息 ──
-    # 相对时间
-    relative_time = ""
-    if latest_seen:
-        try:
-            seen_dt = datetime.fromisoformat(latest_seen.replace("Z", "+00:00"))
-            now = datetime.now(seen_dt.tzinfo)
-            diff = now - seen_dt
-            if diff.days > 30:
-                relative_time = f"{diff.days // 30} 个月前"
-            elif diff.days > 0:
-                relative_time = f"{diff.days} 天前"
-            elif diff.seconds >= 3600:
-                relative_time = f"{diff.seconds // 3600} 小时前"
-            elif diff.seconds >= 60:
-                relative_time = f"{diff.seconds // 60} 分钟前"
-            else:
-                relative_time = "刚刚"
-        except (ValueError, TypeError):
-            pass
-    # 日期 + 时间范围（来自 best fight）
-    date_range_text = ""
     fight = best.get("fight") if best else None
-    if fight and fight.get("start_time"):
-        try:
-            st = datetime.fromisoformat(str(fight["start_time"]).replace("Z", "+00:00"))
-            st_local = st + (datetime.now().astimezone().utcoffset() or st.utcoffset() or timedelta())
-            dur_ns = fight.get("duration", 0) or 0
-            et_local = st_local + timedelta(seconds=dur_ns / 1_000_000_000)
-            date_range_text = (
-                f"{st_local.month} 月 {st_local.day} 日  "
-                f"{st_local.hour}:{st_local.minute:02d} ~ "
-                f"{et_local.hour}:{et_local.minute:02d}"
-            )
-        except (ValueError, TypeError):
-            pass
 
-    # ── 最远进度 ──
-    progress_text = ""
-    if best:
-        clear = best.get("clear", False)
-        if clear:
-            progress_text = "已通关"
+    # ── 过滤并合并同一阵容且时间相邻的队伍 ──
+    # 1. 过滤出当前副本的队伍
+    related: list[dict] = []
+    if parties:
+        for p in parties:
+            if zone_id in (p.get("zone_ids") or []):
+                related.append(p)
+
+    # 2. 相邻且同阵容的合并
+    party_groups: list[dict] = []
+    for p in related:
+        key = _party_member_key(p)
+        if party_groups and _party_member_key(party_groups[-1]) == key:
+            # 同阵容相邻 → 合并
+            prev = party_groups[-1]
+            prev["session_count"] = prev.get("session_count", 0) + p.get("session_count", 0)
+            ls = str(p.get("last_seen", ""))
+            if ls > str(prev.get("last_seen", "")):
+                prev["last_seen"] = ls
         else:
-            prog = best.get("progress") or {}
-            phase = prog.get("phase_name", "")
-            hp = prog.get("enemy_hp")
-            if phase and hp is not None:
-                progress_text = f"{phase} {hp:.1f}%"
-            elif phase:
-                progress_text = phase
-            elif hp is not None:
-                progress_text = f"{hp:.1f}%"
+            party_groups.append({
+                "members": p.get("members", []),
+                "session_count": p.get("session_count", 0),
+                "last_seen": p.get("last_seen", ""),
+            })
 
     # ── 计算高度 ──
-    # 副本标题行
-    total_h = 48
-    # 阶段/HP 行
+    # 副本标题行 + 阶段/HP + 时长
+    zh = 48
     if best and not best.get("clear", False):
         prog = best.get("progress") or {}
         if prog.get("phase_name") or prog.get("enemy_hp") is not None:
-            total_h += 24
-    # 时长行
+            zh += 24
     if fight and fight.get("duration"):
-        total_h += 24
-    # 阵容区域
-    roster_h = 0
-    if merged_members:
-        # "队伍阵容" 标题 + 时间行 + 统计行 + 成员行
-        roster_h += 28  # 分割线 + 标题
-        if relative_time or date_range_text:
-            roster_h += 24  # 时间行
-        if total_sessions or progress_text:
-            roster_h += 26  # 统计行
-        # 成员：单列排列避免溢出
-        roster_h += len(merged_members) * 26
-        roster_h += 8  # 底部间距
-    total_h += roster_h
+        zh += 24
 
+    # 阵容组
+    roster_h = 0
+    if party_groups:
+        for pg in party_groups:
+            roster_h += 26  # 时间行
+            roster_h += 26  # 统计行
+            roster_h += len(pg["members"]) * 26  # 成员
+            roster_h += 10  # 组间距
+        roster_h += 18  # "队伍阵容" 标题 + 分割线
+
+    total_h = zh + roster_h
     card_h = 84 + total_h
     height = 72 + card_h
     image = Image.new("RGB", (width, height), (246, 247, 250))
@@ -760,7 +774,6 @@ def render_sumemo_overview_image(
     if best:
         clear = best.get("clear", False)
         prog = best.get("progress") or {}
-
         if not clear:
             phase_name = prog.get("phase_name", "")
             enemy_hp = prog.get("enemy_hp")
@@ -772,49 +785,56 @@ def render_sumemo_overview_image(
             if detail_parts:
                 draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
                 next_row += 24
-
         if fight and fight.get("duration"):
             draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(fight['duration'])}", font=tiny_font, fill=(140, 140, 146))
 
-    # ── 队伍阵容（合并展示） ──
-    if merged_members:
+    # ── 队伍阵容 ──
+    if party_groups:
         next_row += 28
         draw.line((card_x + 28, next_row - 4, card_x + card_w - 28, next_row - 4), fill=(226, 226, 230), width=1)
         draw.text((card_x + 28, next_row + 2), "队伍阵容", font=small_font, fill=(88, 88, 94))
         next_row += 30
 
-        # 时间行：相对时间 · 日期 时间范围
-        time_parts = []
-        if relative_time:
-            time_parts.append(relative_time)
-        if date_range_text:
-            time_parts.append(date_range_text)
-        if time_parts:
-            draw.text((card_x + 28, next_row + 2), "  ·  ".join(time_parts), font=tiny_font, fill=(140, 140, 146))
-            next_row += 24
+        progress_text = _format_progress_text(best)
+        fight_time = _format_fight_time_range(fight)
 
-        # 统计行：总场次 + 最远进度
-        stat_parts = []
-        if total_sessions:
-            stat_parts.append(f"总场次  {total_sessions}")
-        if progress_text:
-            stat_parts.append(f"最远进度  {progress_text}")
-        if stat_parts:
-            draw.text((card_x + 28, next_row + 2), "    ".join(stat_parts), font=small_font, fill=(80, 80, 86))
-            next_row += 26
+        for group_idx, pg in enumerate(party_groups):
+            members_list = pg["members"]
+            sessions = pg["session_count"]
+            last_seen = str(pg["last_seen"])
 
-        # 成员列表：单列，限制宽度
-        max_member_w = card_w - 56
-        for m in merged_members:
-            m_name = m.get("name", "?")
-            m_server = m.get("server", "")
-            hidden = " 🔒" if m.get("hidden") else ""
-            member_text = f"{m_name}@{m_server}{hidden}"
-            # 截断过长文字
-            while text_bbox_size(draw, member_text, tiny_font)[0] > max_member_w and len(member_text) > 10:
-                member_text = member_text[:-4] + "…"
-            draw.text((card_x + 40, next_row + 4), member_text, font=tiny_font, fill=(100, 100, 106))
-            next_row += 26
+            # 时间行：相对时间 + fight 时间
+            rel = _format_relative_time(last_seen)
+            time_parts = [p for p in [rel, fight_time] if p]
+            time_line = "  ·  ".join(time_parts) if time_parts else ""
+            if time_line:
+                draw.text((card_x + 40, next_row + 2), time_line, font=tiny_font, fill=(140, 140, 146))
+                next_row += 26
+
+            # 统计行：总场次 + 最远进度
+            stat_parts = []
+            if sessions:
+                stat_parts.append(f"总场次  {sessions}")
+            if progress_text:
+                stat_parts.append(f"最远进度  {progress_text}")
+            if stat_parts:
+                draw.text((card_x + 40, next_row + 2), "    ".join(stat_parts), font=small_font, fill=(80, 80, 86))
+                next_row += 26
+
+            # 成员：单列
+            max_member_w = card_w - 72
+            for m in members_list:
+                m_name = m.get("name", "?")
+                m_server = m.get("server", "")
+                hidden = " 🔒" if m.get("hidden") else ""
+                member_line = f"{m_name}@{m_server}{hidden}"
+                while text_bbox_size(draw, member_line, tiny_font)[0] > max_member_w and len(member_line) > 10:
+                    member_line = member_line[:-4] + "…"
+                draw.text((card_x + 52, next_row + 4), member_line, font=tiny_font, fill=(100, 100, 106))
+                next_row += 26
+
+            # 组间间距
+            next_row += 10
 
     image.save(output_path, format="JPEG", quality=90)
 
