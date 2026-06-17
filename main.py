@@ -566,18 +566,20 @@ def render_sumemo_overview_image(
     data: dict,
     output_path: Path,
     font_path: str | None = None,
+    parties: list[dict] | None = None,
 ) -> None:
-    """渲染开荒总览为卡片式图片，仅展示当期副本并附带详细信息。"""
+    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，并按阵容分组。"""
     name = data.get("name", "?")
     server = data.get("server", "?")
     all_zones: dict[str, dict] = data.get("zones", {}) or {}
 
-    # 按 SUMEMO_CURRENT_ZONES 顺序遍历，仅取有进度的副本
-    current_zones: list[tuple[int, dict]] = []
+    # 按 SUMEMO_CURRENT_ZONES 顺序遍历，仅取第一个有进度的副本
+    first_zone: tuple[int, dict] | None = None
     for zid in SUMEMO_CURRENT_ZONES:
         zone_data = all_zones.get(str(zid))
         if zone_data and zone_data.get("best") is not None:
-            current_zones.append((zid, zone_data))
+            first_zone = (zid, zone_data)
+            break
 
     width = 920
     card_x = 24
@@ -591,7 +593,7 @@ def render_sumemo_overview_image(
     title_font = load_render_font(font_path, 28)
     tiny_font = load_render_font(font_path, 15)
 
-    if not current_zones:
+    if first_zone is None:
         card_h = 130
         height = 100 + card_h
         image = Image.new("RGB", (width, height), (246, 247, 250))
@@ -608,25 +610,38 @@ def render_sumemo_overview_image(
         image.save(output_path, format="JPEG", quality=90)
         return
 
-    # 按列表顺序展示
-    total_h = 0
-    for zone_id, zone_data in current_zones:
-        best = zone_data.get("best")
-        z_h = 48  # 标题行
-        if best:
-            fight = best.get("fight")
-            players = fight.get("players", []) if fight else []
-            clear = best.get("clear", False)
-            if not clear:
-                z_h += 24  # 阶段/HP 行
-            if fight and fight.get("duration"):
-                z_h += 24  # 时长行
-            if players:
-                roster_rows = (len(players) + 1) // 2
-                z_h += 20 + roster_rows * 24  # 阵容
-        else:
-            z_h += 0
-        total_h += z_h
+    zone_id, zone_data = first_zone
+    duty = zone_data.get("duty", {})
+    best = zone_data.get("best")
+    zone_label = _sumemo_zone_name(zone_id, duty)
+
+    # 过滤出相关阵容（zone_ids 包含当前副本的）
+    related_parties: list[dict] = []
+    if parties:
+        for p in parties:
+            p_zone_ids = p.get("zone_ids", [])
+            if zone_id in p_zone_ids:
+                related_parties.append(p)
+
+    # ── 计算高度 ──
+    # 标题行 + 状态行
+    zh = 48
+    if best:
+        clear = best.get("clear", False)
+        if not clear:
+            zh += 24  # 阶段/HP
+        fight = best.get("fight")
+        if fight and fight.get("duration"):
+            zh += 24  # 时长
+    # 阵容分组
+    party_heights = 0
+    if related_parties:
+        party_heights += 30  # "阵容分组" 标题行
+        for p in related_parties:
+            members_list = p.get("members", [])
+            rows = (len(members_list) + 1) // 2
+            party_heights += 48 + rows * 24  # 标题行 + 成员行
+    total_h = zh + party_heights
 
     card_h = 84 + total_h
     height = 72 + card_h
@@ -643,79 +658,89 @@ def render_sumemo_overview_image(
     draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
 
     row_y = y + 82
-    for zi, (zone_id, zone_data) in enumerate(current_zones):
-        duty = zone_data.get("duty", {})
-        best = zone_data.get("best")
-        zone_label = _sumemo_zone_name(zone_id, duty)
 
-        # 交替底色
-        if zi % 2 == 0:
-            draw.rectangle((card_x + 14, row_y, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
+    # ── 副本标题行 ──
+    draw.rectangle((card_x + 14, row_y, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
+    draw.text((card_x + 28, row_y + 10), zone_label, font=body_font, fill=(45, 45, 52))
 
-        draw.text((card_x + 28, row_y + 10), zone_label, font=body_font, fill=(45, 45, 52))
-
-        if best is None:
-            pill_fill = (200, 200, 206)
-            pill_text = "无记录"
+    if best is None:
+        pill_fill = (200, 200, 206)
+        pill_text = "无记录"
+    else:
+        clear = best.get("clear", False)
+        if clear:
+            pill_fill = clear_color
+            pill_text = "已通关"
         else:
-            clear = best.get("clear", False)
-            if clear:
-                pill_fill = clear_color
-                pill_text = "已通关"
-            else:
-                progress = best.get("progress") or {}
-                phase_name = progress.get("phase_name", "")
-                enemy_hp = progress.get("enemy_hp")
-                pill_fill = prog_color
-                pill_text = phase_name or "开荒中"
-                if enemy_hp is not None:
-                    pill_text += f" {enemy_hp:.1f}%"
-        text_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
-        pill_x = card_x + card_w - text_w - 36
-        draw.rounded_rectangle((pill_x, row_y + 9, pill_x + text_w, row_y + 37), radius=10, fill=pill_fill)
-        draw.text((pill_x + 12, row_y + 12), pill_text, font=small_font, fill=(255, 255, 255))
-        next_row = row_y + 48
-
-        if best:
-            clear = best.get("clear", False)
             progress = best.get("progress") or {}
-            fight = best.get("fight")
+            phase_name = progress.get("phase_name", "")
+            enemy_hp = progress.get("enemy_hp")
+            pill_fill = prog_color
+            pill_text = phase_name or "开荒中"
+            if enemy_hp is not None:
+                pill_text += f" {enemy_hp:.1f}%"
+    text_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
+    pill_x = card_x + card_w - text_w - 36
+    draw.rounded_rectangle((pill_x, row_y + 9, pill_x + text_w, row_y + 37), radius=10, fill=pill_fill)
+    draw.text((pill_x + 12, row_y + 12), pill_text, font=small_font, fill=(255, 255, 255))
+    next_row = row_y + 48
 
-            if not clear:
-                phase_name = progress.get("phase_name", "")
-                enemy_hp = progress.get("enemy_hp")
-                detail_parts = []
-                if phase_name:
-                    detail_parts.append(f"当前阶段：{phase_name}")
-                if enemy_hp is not None:
-                    detail_parts.append(f"剩余血量：{enemy_hp:.1f}%")
-                if detail_parts:
-                    draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
-                    next_row += 24
+    if best:
+        clear = best.get("clear", False)
+        progress = best.get("progress") or {}
+        fight = best.get("fight")
 
-            dur = fight.get("duration") if fight else None
-            if dur:
-                draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(dur)}", font=tiny_font, fill=(140, 140, 146))
+        if not clear:
+            phase_name = progress.get("phase_name", "")
+            enemy_hp = progress.get("enemy_hp")
+            detail_parts = []
+            if phase_name:
+                detail_parts.append(f"当前阶段：{phase_name}")
+            if enemy_hp is not None:
+                detail_parts.append(f"剩余血量：{enemy_hp:.1f}%")
+            if detail_parts:
+                draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
+                next_row += 24
 
-            players = fight.get("players", []) if fight else []
-            if players:
-                next_row += 20
+        dur = fight.get("duration") if fight else None
+        if dur:
+            draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(dur)}", font=tiny_font, fill=(140, 140, 146))
+
+    # ── 阵容分组 ──
+    if related_parties:
+        next_row += 30
+        draw.line((card_x + 28, next_row - 4, card_x + card_w - 28, next_row - 4), fill=(226, 226, 230), width=1)
+        draw.text((card_x + 28, next_row + 2), "阵容分组", font=small_font, fill=(88, 88, 94))
+        next_row += 30
+
+        for pi, p in enumerate(related_parties):
+            members_list = p.get("members", [])
+            session_count = p.get("session_count", 0)
+            last_seen = str(p.get("last_seen", ""))[:10]
+
+            # 队伍标题
+            party_label = f"队伍 #{pi + 1}"
+            party_meta = f"场次 {session_count}  |  最近 {last_seen}"
+            if pi % 2 == 0:
+                draw.rectangle((card_x + 14, next_row - 4, card_x + card_w - 14, next_row + 40), fill=(249, 250, 252))
+            draw.text((card_x + 28, next_row + 6), party_label, font=body_font, fill=(45, 45, 52))
+            draw.text((card_x + card_w - 280, next_row + 6), party_meta, font=tiny_font, fill=(120, 120, 126))
+            next_row += 46
+
+            # 成员
+            if members_list:
                 cols = 2
                 col_w = (card_w - 80) // cols
-                for pi, p in enumerate(players):
-                    col = pi % cols
-                    px = card_x + 40 + col * col_w
-                    py = next_row + (pi // cols) * 24
-                    j_name = _sumemo_job_name(p.get("job_id", 0))
-                    p_name = p.get("name", "?")
-                    p_server = p.get("server", "")
-                    deaths = p.get("death_count", 0)
-                    death_text = f"  x{deaths}" if deaths else ""
-                    line = f"{j_name} {p_name}@{p_server}{death_text}"
-                    draw.text((px, py), line, font=tiny_font, fill=(100, 100, 106))
-                next_row += ((len(players) + 1) // 2) * 24
-
-        row_y = next_row + 4
+                for mi, m in enumerate(members_list):
+                    col = mi % cols
+                    mx = card_x + 40 + col * col_w
+                    my = next_row + (mi // cols) * 24
+                    m_name = m.get("name", "?")
+                    m_server = m.get("server", "")
+                    hidden = " 🔒" if m.get("hidden") else ""
+                    draw.text((mx, my), f"{m_name}@{m_server}{hidden}", font=tiny_font, fill=(100, 100, 106))
+                next_row += ((len(members_list) + 1) // 2) * 24
+            next_row += 8
 
     image.save(output_path, format="JPEG", quality=90)
 
@@ -5278,11 +5303,13 @@ class TataruPlugin(Star):
         name = parts[0]
         server = parts[1]
 
+        base_url = self.sumemo_base_url()
+        api_key = self.sumemo_api_key()
+
         try:
-            data = await sumemo_get_member_overview(
-                name, server,
-                base_url=self.sumemo_base_url(),
-                api_key=self.sumemo_api_key(),
+            data, parties_data = await asyncio.gather(
+                sumemo_get_member_overview(name, server, base_url=base_url, api_key=api_key),
+                sumemo_get_member_parties(name, server, base_url=base_url, api_key=api_key),
             )
         except Exception as exc:
             logger.warning(f"SuMemo 进度查询失败: {exc}")
@@ -5296,8 +5323,10 @@ class TataruPlugin(Star):
             )
             return
 
+        party_list = parties_data.get("parties", []) if isinstance(parties_data, dict) else []
+
         image_path = self.cache_dir / "sumemo_overview.jpg"
-        render_sumemo_overview_image(data, image_path, font_path=self.configured_font_path())
+        render_sumemo_overview_image(data, image_path, font_path=self.configured_font_path(), parties=party_list)
         yield event.image_result(str(image_path))
 
     @filter.command("进度本")
