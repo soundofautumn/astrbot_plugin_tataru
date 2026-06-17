@@ -431,12 +431,15 @@ SUMEMO_JOB_ID_NAME: dict[int, str] = {
     43: "魔兽使",
 }
 
-SUMEMO_KNOWN_ZONES: dict[int, str] = {
+# 当期高难副本。key 为 zone_id，value 为副本名称。
+# dict 的 key 顺序即为优先级顺序，进度查询时按此顺序从前往后展示有进度的副本。
+SUMEMO_CURRENT_ZONES: dict[int, str] = {
     1363: "妖星乱舞绝境战",
+    1321: "致命美人",
+    1323: "极限兄弟",
+    1325: "霸王",
+    1327: "林德布鲁姆"
 }
-
-# 当期高难副本 zone_id，进度查询时仅展示这些副本的详细信息
-SUMEMO_CURRENT_ZONES: set[int] = {1363}
 
 
 # ── SuMemo API 辅助函数 ──────────────────────────────────
@@ -535,8 +538,8 @@ def _sumemo_job_name(job_id: int) -> str:
 
 def _sumemo_zone_name(zone_id: int, duty: dict | None = None) -> str:
     if duty:
-        return duty.get("name") or SUMEMO_KNOWN_ZONES.get(zone_id) or f"副本 {zone_id}"
-    return SUMEMO_KNOWN_ZONES.get(zone_id, f"副本 {zone_id}")
+        return duty.get("name") or SUMEMO_CURRENT_ZONES.get(zone_id) or f"副本 {zone_id}"
+    return SUMEMO_CURRENT_ZONES.get(zone_id, f"副本 {zone_id}")
 
 
 def _sumemo_format_nanos(ns: int) -> str:
@@ -569,11 +572,11 @@ def render_sumemo_overview_image(
     server = data.get("server", "?")
     all_zones: dict[str, dict] = data.get("zones", {}) or {}
 
-    # 仅取当期副本
+    # 按 SUMEMO_CURRENT_ZONES 顺序遍历，仅取有进度的副本
     current_zones: list[tuple[int, dict]] = []
-    for zone_id_str, zone_data in all_zones.items():
-        zid = int(zone_id_str)
-        if zid in SUMEMO_CURRENT_ZONES:
+    for zid in SUMEMO_CURRENT_ZONES:
+        zone_data = all_zones.get(str(zid))
+        if zone_data and zone_data.get("best") is not None:
             current_zones.append((zid, zone_data))
 
     width = 920
@@ -605,10 +608,9 @@ def render_sumemo_overview_image(
         image.save(output_path, format="JPEG", quality=90)
         return
 
-    sorted_zones = sorted(current_zones, key=lambda x: x[0])
-    # 每个当期副本：标题行 + 详情行 + 阵容行（如有）
+    # 按列表顺序展示
     total_h = 0
-    for zone_id, zone_data in sorted_zones:
+    for zone_id, zone_data in current_zones:
         best = zone_data.get("best")
         z_h = 48  # 标题行
         if best:
@@ -641,7 +643,7 @@ def render_sumemo_overview_image(
     draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
 
     row_y = y + 82
-    for zi, (zone_id, zone_data) in enumerate(sorted_zones):
+    for zi, (zone_id, zone_data) in enumerate(current_zones):
         duty = zone_data.get("duty", {})
         best = zone_data.get("best")
         zone_label = _sumemo_zone_name(zone_id, duty)
@@ -686,7 +688,7 @@ def render_sumemo_overview_image(
                 if phase_name:
                     detail_parts.append(f"当前阶段：{phase_name}")
                 if enemy_hp is not None:
-                    detail_parts.append(f"BOSS血量：{enemy_hp:.1f}%")
+                    detail_parts.append(f"剩余血量：{enemy_hp:.1f}%")
                 if detail_parts:
                     draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
                     next_row += 24
@@ -872,7 +874,7 @@ def render_sumemo_parties_image(
 
         zone_text = ""
         if zone_ids:
-            zone_labels = [SUMEMO_KNOWN_ZONES.get(z, f"#{z}") for z in zone_ids[:3]]
+            zone_labels = [SUMEMO_CURRENT_ZONES.get(z, f"#{z}") for z in zone_ids[:3]]
             zone_text = f"  [{', '.join(zone_labels)}]"
         draw.text((card_x + 28, y + 14), f"队伍 #{pi + 1}", font=title_font, fill=(255, 255, 255))
 
