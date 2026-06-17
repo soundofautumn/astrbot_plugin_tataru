@@ -629,7 +629,7 @@ def render_sumemo_overview_image(
             clear = best.get("clear", False)
             if clear:
                 pill_fill = clear_color
-                pill_text = "✓ 已通关"
+                pill_text = "已通关"
                 pill_text_fill = (255, 255, 255)
             else:
                 progress = best.get("progress") or {}
@@ -695,7 +695,7 @@ def render_sumemo_zone_best_image(
     draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
 
     body_y = y + 86
-    status = "✓ 已通关" if clear else "○ 开荒中"
+    status = "已通关" if clear else "开荒中"
     status_color = (76, 175, 80) if clear else (255, 152, 0)
     draw.text((card_x + 28, body_y), "进度：", font=body_font, fill=(88, 88, 94))
     status_w = text_bbox_size(draw, "进度：", body_font)[0]
@@ -1726,9 +1726,9 @@ def create_help_text() -> str:
 [输出 boss名 职业名 (国服) (rdps) (day2)] 查询FFLogs输出分段
 [logs 角色名 服务器名 (国服/国际服)] 查询角色FFLogs战绩
 [抽卡] 随机抽取一张FF14塔罗牌
-[进度 角色名@服务器] 查询角色 SuMemo 开荒总览
-[进度本 角色名@服务器 副本ID] 查询角色某副本开荒详情
-[进度队 角色名@服务器] 查询角色高难固定队
+[进度 角色名 服务器名] 查询角色 SuMemo 开荒总览
+[进度本 角色名 服务器名 副本ID] 查询角色某副本开荒详情
+[进度队 角色名 服务器名] 查询角色高难固定队
 [进度统计] 查看 SuMemo 全站统计数据
 """
 
@@ -5197,19 +5197,14 @@ class TataruPlugin(Star):
     async def sumemo_progress(self, event: AstrMessageEvent):
         """查询角色 SuMemo 开荒总览。"""
         arg = command_args(event.message_str, "进度").strip()
-        if not arg or "@" not in arg:
+        parts = arg.split()
+        if len(parts) < 2:
             yield event.plain_result(
-                "查进度格式：进度 角色名@服务器\n例：进度 一色彩羽@银泪湖"
+                "查进度格式：进度 角色名 服务器名\n例：进度 一色彩羽 银泪湖"
             )
             return
-        name, _, server = arg.partition("@")
-        name = name.strip()
-        server = server.strip()
-        if not name or not server:
-            yield event.plain_result(
-                "格式有误，请使用：进度 角色名@服务器\n例：进度 一色彩羽@银泪湖"
-            )
-            return
+        name = parts[0]
+        server = parts[1]
 
         try:
             data = await sumemo_get_member_overview(
@@ -5225,7 +5220,7 @@ class TataruPlugin(Star):
         if data is None:
             yield event.plain_result(
                 f"未找到玩家 {name}@{server} 的开荒记录。\n"
-                "请确认角色名和服务器名正确，格式为 角色名@服务器。"
+                "请确认角色名和服务器名正确。"
             )
             return
 
@@ -5238,30 +5233,20 @@ class TataruPlugin(Star):
         """查询角色某副本开荒详情。"""
         arg = command_args(event.message_str, "进度本").strip()
         parts = arg.split()
-        if len(parts) < 2:
+        if len(parts) < 3:
             yield event.plain_result(
-                "查副本进度格式：进度本 角色名@服务器 副本ID\n"
-                "例：进度本 一色彩羽@银泪湖 104\n"
+                "查副本进度格式：进度本 角色名 服务器名 副本ID\n"
+                "例：进度本 一色彩羽 银泪湖 104\n"
                 "常用副本ID：104=M12S门神 105=M12S本体 96=M4S 等"
             )
             return
-
-        user_part = parts[0]
-        if "@" not in user_part:
-            yield event.plain_result(
-                "格式有误，请使用：进度本 角色名@服务器 副本ID\n例：进度本 一色彩羽@银泪湖 104"
-            )
-            return
-
+        name = parts[0]
+        server = parts[1]
         try:
-            zone_id = int(parts[1])
+            zone_id = int(parts[2])
         except ValueError:
-            yield event.plain_result(f"副本ID应为数字，收到了：{parts[1]}")
+            yield event.plain_result(f"副本ID应为数字，收到了：{parts[2]}")
             return
-
-        name, _, server = user_part.partition("@")
-        name = name.strip()
-        server = server.strip()
 
         try:
             data = await sumemo_get_member_zone_best(
@@ -5288,19 +5273,14 @@ class TataruPlugin(Star):
     async def sumemo_party(self, event: AstrMessageEvent):
         """查询角色高难固定队。"""
         arg = command_args(event.message_str, "进度队").strip()
-        if not arg or "@" not in arg:
+        parts = arg.split()
+        if len(parts) < 2:
             yield event.plain_result(
-                "查固定队格式：进度队 角色名@服务器\n例：进度队 一色彩羽@银泪湖"
+                "查固定队格式：进度队 角色名 服务器名\n例：进度队 一色彩羽 银泪湖"
             )
             return
-        name, _, server = arg.partition("@")
-        name = name.strip()
-        server = server.strip()
-        if not name or not server:
-            yield event.plain_result(
-                "格式有误，请使用：进度队 角色名@服务器\n例：进度队 一色彩羽@银泪湖"
-            )
-            return
+        name = parts[0]
+        server = parts[1]
 
         try:
             data = await sumemo_get_member_parties(
