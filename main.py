@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 import html
 import json
@@ -568,7 +568,7 @@ def render_sumemo_overview_image(
     font_path: str | None = None,
     parties: list[dict] | None = None,
 ) -> None:
-    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，并按阵容分组。"""
+    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，阵容合并展示。"""
     name = data.get("name", "?")
     server = data.get("server", "?")
     all_zones: dict[str, dict] = data.get("zones", {}) or {}
@@ -615,33 +615,104 @@ def render_sumemo_overview_image(
     best = zone_data.get("best")
     zone_label = _sumemo_zone_name(zone_id, duty)
 
-    # 过滤出相关阵容（zone_ids 包含当前副本的）
-    related_parties: list[dict] = []
+    # ── 合并所有相关阵容 ──
+    merged_members: list[dict] = []
+    total_sessions = 0
+    latest_seen = ""
     if parties:
+        seen = set()
         for p in parties:
             p_zone_ids = p.get("zone_ids", [])
-            if zone_id in p_zone_ids:
-                related_parties.append(p)
+            if zone_id not in p_zone_ids:
+                continue
+            total_sessions += p.get("session_count", 0)
+            ls = str(p.get("last_seen", ""))
+            if ls > latest_seen:
+                latest_seen = ls
+            for m in p.get("members", []):
+                key = f"{m.get('name','')}@{m.get('server','')}"
+                if key not in seen:
+                    seen.add(key)
+                    merged_members.append(m)
 
-    # ── 计算高度 ──
-    # 标题行 + 状态行
-    zh = 48
+    # ── 时间信息 ──
+    # 相对时间
+    relative_time = ""
+    if latest_seen:
+        try:
+            seen_dt = datetime.fromisoformat(latest_seen.replace("Z", "+00:00"))
+            now = datetime.now(seen_dt.tzinfo)
+            diff = now - seen_dt
+            if diff.days > 30:
+                relative_time = f"{diff.days // 30} 个月前"
+            elif diff.days > 0:
+                relative_time = f"{diff.days} 天前"
+            elif diff.seconds >= 3600:
+                relative_time = f"{diff.seconds // 3600} 小时前"
+            elif diff.seconds >= 60:
+                relative_time = f"{diff.seconds // 60} 分钟前"
+            else:
+                relative_time = "刚刚"
+        except (ValueError, TypeError):
+            pass
+    # 日期 + 时间范围（来自 best fight）
+    date_range_text = ""
+    fight = best.get("fight") if best else None
+    if fight and fight.get("start_time"):
+        try:
+            st = datetime.fromisoformat(str(fight["start_time"]).replace("Z", "+00:00"))
+            st_local = st + (datetime.now().astimezone().utcoffset() or st.utcoffset() or timedelta())
+            dur_ns = fight.get("duration", 0) or 0
+            et_local = st_local + timedelta(seconds=dur_ns / 1_000_000_000)
+            date_range_text = (
+                f"{st_local.month} 月 {st_local.day} 日  "
+                f"{st_local.hour}:{st_local.minute:02d} ~ "
+                f"{et_local.hour}:{et_local.minute:02d}"
+            )
+        except (ValueError, TypeError):
+            pass
+
+    # ── 最远进度 ──
+    progress_text = ""
     if best:
         clear = best.get("clear", False)
-        if not clear:
-            zh += 24  # 阶段/HP
-        fight = best.get("fight")
-        if fight and fight.get("duration"):
-            zh += 24  # 时长
-    # 阵容分组
-    party_heights = 0
-    if related_parties:
-        party_heights += 30  # "阵容分组" 标题行
-        for p in related_parties:
-            members_list = p.get("members", [])
-            rows = (len(members_list) + 1) // 2
-            party_heights += 48 + rows * 24  # 标题行 + 成员行
-    total_h = zh + party_heights
+        if clear:
+            progress_text = "已通关"
+        else:
+            prog = best.get("progress") or {}
+            phase = prog.get("phase_name", "")
+            hp = prog.get("enemy_hp")
+            if phase and hp is not None:
+                progress_text = f"{phase} {hp:.1f}%"
+            elif phase:
+                progress_text = phase
+            elif hp is not None:
+                progress_text = f"{hp:.1f}%"
+
+    # ── 计算高度 ──
+    # 副本标题行
+    total_h = 48
+    # 阶段/HP 行
+    if best and not best.get("clear", False):
+        prog = best.get("progress") or {}
+        if prog.get("phase_name") or prog.get("enemy_hp") is not None:
+            total_h += 24
+    # 时长行
+    if fight and fight.get("duration"):
+        total_h += 24
+    # 阵容区域
+    roster_h = 0
+    if merged_members:
+        # "队伍阵容" 标题 + 时间行 + 统计行 + 成员行
+        roster_h += 28  # 分割线 + 标题
+        if relative_time or date_range_text:
+            roster_h += 24  # 时间行
+        if total_sessions or progress_text:
+            roster_h += 26  # 统计行
+        # 成员：单列排列避免溢出
+        roster_h += len(merged_members) * 26
+        roster_h += 8  # 底部间距
+    total_h += roster_h
 
     card_h = 84 + total_h
     height = 72 + card_h
@@ -663,6 +734,7 @@ def render_sumemo_overview_image(
     draw.rectangle((card_x + 14, row_y, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
     draw.text((card_x + 28, row_y + 10), zone_label, font=body_font, fill=(45, 45, 52))
 
+    # 状态 pill
     if best is None:
         pill_fill = (200, 200, 206)
         pill_text = "无记录"
@@ -672,27 +744,26 @@ def render_sumemo_overview_image(
             pill_fill = clear_color
             pill_text = "已通关"
         else:
-            progress = best.get("progress") or {}
-            phase_name = progress.get("phase_name", "")
-            enemy_hp = progress.get("enemy_hp")
+            prog = best.get("progress") or {}
+            phase_name = prog.get("phase_name", "")
+            enemy_hp = prog.get("enemy_hp")
             pill_fill = prog_color
             pill_text = phase_name or "开荒中"
             if enemy_hp is not None:
                 pill_text += f" {enemy_hp:.1f}%"
-    text_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
-    pill_x = card_x + card_w - text_w - 36
-    draw.rounded_rectangle((pill_x, row_y + 9, pill_x + text_w, row_y + 37), radius=10, fill=pill_fill)
+    pill_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
+    pill_x = card_x + card_w - pill_w - 36
+    draw.rounded_rectangle((pill_x, row_y + 9, pill_x + pill_w, row_y + 37), radius=10, fill=pill_fill)
     draw.text((pill_x + 12, row_y + 12), pill_text, font=small_font, fill=(255, 255, 255))
     next_row = row_y + 48
 
     if best:
         clear = best.get("clear", False)
-        progress = best.get("progress") or {}
-        fight = best.get("fight")
+        prog = best.get("progress") or {}
 
         if not clear:
-            phase_name = progress.get("phase_name", "")
-            enemy_hp = progress.get("enemy_hp")
+            phase_name = prog.get("phase_name", "")
+            enemy_hp = prog.get("enemy_hp")
             detail_parts = []
             if phase_name:
                 detail_parts.append(f"当前阶段：{phase_name}")
@@ -702,45 +773,48 @@ def render_sumemo_overview_image(
                 draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
                 next_row += 24
 
-        dur = fight.get("duration") if fight else None
-        if dur:
-            draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(dur)}", font=tiny_font, fill=(140, 140, 146))
+        if fight and fight.get("duration"):
+            draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(fight['duration'])}", font=tiny_font, fill=(140, 140, 146))
 
-    # ── 阵容分组 ──
-    if related_parties:
-        next_row += 30
+    # ── 队伍阵容（合并展示） ──
+    if merged_members:
+        next_row += 28
         draw.line((card_x + 28, next_row - 4, card_x + card_w - 28, next_row - 4), fill=(226, 226, 230), width=1)
-        draw.text((card_x + 28, next_row + 2), "阵容分组", font=small_font, fill=(88, 88, 94))
+        draw.text((card_x + 28, next_row + 2), "队伍阵容", font=small_font, fill=(88, 88, 94))
         next_row += 30
 
-        for pi, p in enumerate(related_parties):
-            members_list = p.get("members", [])
-            session_count = p.get("session_count", 0)
-            last_seen = str(p.get("last_seen", ""))[:10]
+        # 时间行：相对时间 · 日期 时间范围
+        time_parts = []
+        if relative_time:
+            time_parts.append(relative_time)
+        if date_range_text:
+            time_parts.append(date_range_text)
+        if time_parts:
+            draw.text((card_x + 28, next_row + 2), "  ·  ".join(time_parts), font=tiny_font, fill=(140, 140, 146))
+            next_row += 24
 
-            # 队伍标题
-            party_label = f"队伍 #{pi + 1}"
-            party_meta = f"场次 {session_count}  |  最近 {last_seen}"
-            if pi % 2 == 0:
-                draw.rectangle((card_x + 14, next_row - 4, card_x + card_w - 14, next_row + 40), fill=(249, 250, 252))
-            draw.text((card_x + 28, next_row + 6), party_label, font=body_font, fill=(45, 45, 52))
-            draw.text((card_x + card_w - 280, next_row + 6), party_meta, font=tiny_font, fill=(120, 120, 126))
-            next_row += 46
+        # 统计行：总场次 + 最远进度
+        stat_parts = []
+        if total_sessions:
+            stat_parts.append(f"总场次  {total_sessions}")
+        if progress_text:
+            stat_parts.append(f"最远进度  {progress_text}")
+        if stat_parts:
+            draw.text((card_x + 28, next_row + 2), "    ".join(stat_parts), font=small_font, fill=(80, 80, 86))
+            next_row += 26
 
-            # 成员
-            if members_list:
-                cols = 2
-                col_w = (card_w - 80) // cols
-                for mi, m in enumerate(members_list):
-                    col = mi % cols
-                    mx = card_x + 40 + col * col_w
-                    my = next_row + (mi // cols) * 24
-                    m_name = m.get("name", "?")
-                    m_server = m.get("server", "")
-                    hidden = " 🔒" if m.get("hidden") else ""
-                    draw.text((mx, my), f"{m_name}@{m_server}{hidden}", font=tiny_font, fill=(100, 100, 106))
-                next_row += ((len(members_list) + 1) // 2) * 24
-            next_row += 8
+        # 成员列表：单列，限制宽度
+        max_member_w = card_w - 56
+        for m in merged_members:
+            m_name = m.get("name", "?")
+            m_server = m.get("server", "")
+            hidden = " 🔒" if m.get("hidden") else ""
+            member_text = f"{m_name}@{m_server}{hidden}"
+            # 截断过长文字
+            while text_bbox_size(draw, member_text, tiny_font)[0] > max_member_w and len(member_text) > 10:
+                member_text = member_text[:-4] + "…"
+            draw.text((card_x + 40, next_row + 4), member_text, font=tiny_font, fill=(100, 100, 106))
+            next_row += 26
 
     image.save(output_path, format="JPEG", quality=90)
 
