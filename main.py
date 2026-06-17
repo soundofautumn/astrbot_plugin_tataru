@@ -4895,7 +4895,7 @@ async def get_party_finder_entries(
     "aaron-li / Codex",
     "FF14 塔塔露 AstrBot 插件",
     PLUGIN_VERSION,
-    "https://github.com/jawwe/astrbot_plugin_tataru",
+    "https://github.com/soundofautumn/astrbot_plugin_tataru",
 )
 class TataruPlugin(Star):
     def __init__(self, context: Context, config=None):
