@@ -402,7 +402,7 @@ PARTY_JOB_ALIASES = {
 
 # ── SuMemo 常量 ───────────────────────────────────────────
 
-SUMEMO_DEFAULT_BASE_URL = "https://sumemo.diemoe.net"
+SUMEMO_DEFAULT_BASE_URL = "https://api.sumemo.dev"
 SUMEMO_REQUEST_TIMEOUT = 20
 
 SUMEMO_JOB_ID_NAME: dict[int, str] = {
@@ -434,6 +434,9 @@ SUMEMO_JOB_ID_NAME: dict[int, str] = {
 SUMEMO_KNOWN_ZONES: dict[int, str] = {
     1363: "妖星乱舞绝境战",
 }
+
+# 当期高难副本 zone_id，进度查询时仅展示这些副本的详细信息
+SUMEMO_CURRENT_ZONES: set[int] = {1363}
 
 
 # ── SuMemo API 辅助函数 ──────────────────────────────────
@@ -561,10 +564,17 @@ def render_sumemo_overview_image(
     output_path: Path,
     font_path: str | None = None,
 ) -> None:
-    """渲染开荒总览为卡片式图片。"""
+    """渲染开荒总览为卡片式图片，仅展示当期副本并附带详细信息。"""
     name = data.get("name", "?")
     server = data.get("server", "?")
-    zones: dict[str, dict] = data.get("zones", {}) or {}
+    all_zones: dict[str, dict] = data.get("zones", {}) or {}
+
+    # 仅取当期副本
+    current_zones: list[tuple[int, dict]] = []
+    for zone_id_str, zone_data in all_zones.items():
+        zid = int(zone_id_str)
+        if zid in SUMEMO_CURRENT_ZONES:
+            current_zones.append((zid, zone_data))
 
     width = 920
     card_x = 24
@@ -576,8 +586,9 @@ def render_sumemo_overview_image(
     body_font = load_render_font(font_path, 22)
     small_font = load_render_font(font_path, 17)
     title_font = load_render_font(font_path, 28)
+    tiny_font = load_render_font(font_path, 15)
 
-    if not zones:
+    if not current_zones:
         card_h = 130
         height = 100 + card_h
         image = Image.new("RGB", (width, height), (246, 247, 250))
@@ -588,14 +599,34 @@ def render_sumemo_overview_image(
         draw.rounded_rectangle((card_x, y, card_x + card_w, y + card_h), radius=14, fill=(255, 255, 255))
         draw.rounded_rectangle((card_x, y, card_x + card_w, y + 62), radius=14, fill=header_color)
         draw.rectangle((card_x, y + 44, card_x + card_w, y + 62), fill=header_color)
-        draw.text((card_x + 28, y + 14), f"{name}@{server}", font=title_font, fill=(255, 255, 255))
-        draw.text((card_x + 28, y + 76), "暂无开荒记录", font=body_font, fill=(120, 120, 126))
+        draw.text((card_x + 28, y + 14), "SuMemo 开荒总览", font=title_font, fill=(255, 255, 255))
+        draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
+        draw.text((card_x + 28, y + 76), "暂无当期副本开荒记录", font=body_font, fill=(120, 120, 126))
         image.save(output_path, format="JPEG", quality=90)
         return
 
-    sorted_zones = sorted(zones.items(), key=lambda x: int(x[0]))
-    row_h = 52
-    card_h = 84 + len(sorted_zones) * row_h
+    sorted_zones = sorted(current_zones, key=lambda x: x[0])
+    # 每个当期副本：标题行 + 详情行 + 阵容行（如有）
+    total_h = 0
+    for zone_id, zone_data in sorted_zones:
+        best = zone_data.get("best")
+        z_h = 48  # 标题行
+        if best:
+            fight = best.get("fight")
+            players = fight.get("players", []) if fight else []
+            clear = best.get("clear", False)
+            if not clear:
+                z_h += 24  # 阶段/HP 行
+            if fight and fight.get("duration"):
+                z_h += 24  # 时长行
+            if players:
+                roster_rows = (len(players) + 1) // 2
+                z_h += 20 + roster_rows * 24  # 阵容
+        else:
+            z_h += 0
+        total_h += z_h
+
+    card_h = 84 + total_h
     height = 72 + card_h
     image = Image.new("RGB", (width, height), (246, 247, 250))
     draw = ImageDraw.Draw(image)
@@ -606,31 +637,29 @@ def render_sumemo_overview_image(
     draw.rounded_rectangle((card_x, y, card_x + card_w, y + card_h), radius=14, fill=(255, 255, 255))
     draw.rounded_rectangle((card_x, y, card_x + card_w, y + 64), radius=14, fill=header_color)
     draw.rectangle((card_x, y + 46, card_x + card_w, y + 64), fill=header_color)
-    draw.text((card_x + 28, y + 14), f"SuMemo 开荒总览", font=title_font, fill=(255, 255, 255))
+    draw.text((card_x + 28, y + 14), "SuMemo 开荒总览", font=title_font, fill=(255, 255, 255))
     draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
 
-    for zi, (zone_id_str, zone_data) in enumerate(sorted_zones):
-        row_y = y + 82 + zi * row_h
-        zone_id = int(zone_id_str)
+    row_y = y + 82
+    for zi, (zone_id, zone_data) in enumerate(sorted_zones):
         duty = zone_data.get("duty", {})
         best = zone_data.get("best")
         zone_label = _sumemo_zone_name(zone_id, duty)
 
+        # 交替底色
         if zi % 2 == 0:
-            draw.rectangle((card_x + 14, row_y, card_x + card_w - 14, row_y + row_h), fill=(249, 250, 252))
+            draw.rectangle((card_x + 14, row_y, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
 
         draw.text((card_x + 28, row_y + 10), zone_label, font=body_font, fill=(45, 45, 52))
 
         if best is None:
             pill_fill = (200, 200, 206)
             pill_text = "无记录"
-            pill_text_fill = (255, 255, 255)
         else:
             clear = best.get("clear", False)
             if clear:
                 pill_fill = clear_color
                 pill_text = "已通关"
-                pill_text_fill = (255, 255, 255)
             else:
                 progress = best.get("progress") or {}
                 phase_name = progress.get("phase_name", "")
@@ -639,13 +668,52 @@ def render_sumemo_overview_image(
                 pill_text = phase_name or "开荒中"
                 if enemy_hp is not None:
                     pill_text += f" {enemy_hp:.1f}%"
-                pill_text_fill = (255, 255, 255)
-
         text_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
         pill_x = card_x + card_w - text_w - 36
-        pill_rect = (pill_x, row_y + 9, pill_x + text_w, row_y + row_h - 10)
-        draw.rounded_rectangle(pill_rect, radius=10, fill=pill_fill)
-        draw.text((pill_x + 12, row_y + 12), pill_text, font=small_font, fill=pill_text_fill)
+        draw.rounded_rectangle((pill_x, row_y + 9, pill_x + text_w, row_y + 37), radius=10, fill=pill_fill)
+        draw.text((pill_x + 12, row_y + 12), pill_text, font=small_font, fill=(255, 255, 255))
+        next_row = row_y + 48
+
+        if best:
+            clear = best.get("clear", False)
+            progress = best.get("progress") or {}
+            fight = best.get("fight")
+
+            if not clear:
+                phase_name = progress.get("phase_name", "")
+                enemy_hp = progress.get("enemy_hp")
+                detail_parts = []
+                if phase_name:
+                    detail_parts.append(f"当前阶段：{phase_name}")
+                if enemy_hp is not None:
+                    detail_parts.append(f"BOSS血量：{enemy_hp:.1f}%")
+                if detail_parts:
+                    draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
+                    next_row += 24
+
+            dur = fight.get("duration") if fight else None
+            if dur:
+                draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(dur)}", font=tiny_font, fill=(140, 140, 146))
+
+            players = fight.get("players", []) if fight else []
+            if players:
+                next_row += 20
+                cols = 2
+                col_w = (card_w - 80) // cols
+                for pi, p in enumerate(players):
+                    col = pi % cols
+                    px = card_x + 40 + col * col_w
+                    py = next_row + (pi // cols) * 24
+                    j_name = _sumemo_job_name(p.get("job_id", 0))
+                    p_name = p.get("name", "?")
+                    p_server = p.get("server", "")
+                    deaths = p.get("death_count", 0)
+                    death_text = f"  x{deaths}" if deaths else ""
+                    line = f"{j_name} {p_name}@{p_server}{death_text}"
+                    draw.text((px, py), line, font=tiny_font, fill=(100, 100, 106))
+                next_row += ((len(players) + 1) // 2) * 24
+
+        row_y = next_row + 4
 
     image.save(output_path, format="JPEG", quality=90)
 
@@ -901,7 +969,9 @@ def render_sumemo_stats_image(
             draw.rectangle((card_x + 14, row_y - 4, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
 
         pct = f"{cleared / players * 100:.0f}%" if players else "0%"
-        draw.text((card_x + 28, row_y + 4), zone_label, font=small_font, fill=(45, 45, 52))
+        is_current = zone_id in SUMEMO_CURRENT_ZONES
+        label_text = f"【当期】{zone_label}" if is_current else zone_label
+        draw.text((card_x + 28, row_y + 4), label_text, font=small_font, fill=header_color if is_current else (45, 45, 52))
         detail = f"玩家 {players:,}  |  通关 {cleared:,} ({pct})  |  场次 {fights_count:,}"
         draw.text((card_x + 28, row_y + 26), detail, font=small_font, fill=(120, 120, 126))
 
