@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from email.utils import parsedate_to_datetime
 import html
 import json
@@ -441,8 +441,6 @@ SUMEMO_CURRENT_ZONES: dict[int, str] = {
     1327: "林德布鲁姆"
 }
 
-_SUMEMO_TZ = timezone(timedelta(hours=8))  # UTC+8 用于显示时间
-
 
 # ── SuMemo 数据结构 ──────────────────────────────────────
 
@@ -715,6 +713,17 @@ async def sumemo_get_member_parties(
     )
 
 
+async def sumemo_get_member_zone_latest(
+    name: str, server: str, zone_id: int,
+    base_url: str | None = None, api_key: str = ""
+) -> list[SuMemberZoneProgress] | None:
+    url = f"{_sumemo_resolve_base_url(base_url)}/member/{name}@{server}/{zone_id}/latest"
+    data = await _sumemo_get(url, api_key)
+    if not isinstance(data, list):
+        return None
+    return [_parse_member_zone_progress(r) for r in data if isinstance(r, dict)]
+
+
 async def sumemo_get_global_summary(
     base_url: str | None = None, api_key: str = ""
 ) -> dict | None:
@@ -756,71 +765,29 @@ def _sumemo_format_nanos(ns: int) -> str:
 
 
 
-def _format_relative_time(iso_str: str) -> str:
-    """将 ISO 时间字符串转为相对时间描述。"""
-    if not iso_str:
+def _party_hash_from_fight(fight: SuFight | None) -> str:
+    """从 fight 的 players 推算 party_hash（排序后的 job_id 列表拼接）。"""
+    if not fight or not fight.players:
         return ""
-    try:
-        t = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        diff = datetime.now(t.tzinfo) - t
-        if diff.days > 30:
-            return f"{diff.days // 30} 个月前"
-        if diff.days > 0:
-            return f"{diff.days} 天前"
-        if diff.seconds >= 3600:
-            return f"{diff.seconds // 3600} 小时前"
-        if diff.seconds >= 60:
-            return f"{diff.seconds // 60} 分钟前"
-        return "刚刚"
-    except (ValueError, TypeError):
-        return ""
+    ids = sorted(p.job_id for p in fight.players)
+    return "|".join(str(i) for i in ids)
 
 
-def _format_fight_time_range(fight: SuFight | None) -> str:
-    """从 fight 的 start_time + duration 格式化为 UTC+8 时间范围。"""
-    if not fight or not fight.start_time:
+def _party_hash_from_fight(fight: SuFight | None) -> str:
+    """从 fight 的 players 推算 party_hash（排序后的 job_id 拼接）。"""
+    if not fight or not fight.players:
         return ""
-    try:
-        st = datetime.fromisoformat(fight.start_time.replace("Z", "+00:00"))
-        st_local = st.astimezone(_SUMEMO_TZ)
-        dur_ns = fight.duration or 0
-        et_local = st_local + timedelta(seconds=dur_ns / 1_000_000_000)
-        return (
-            f"{st_local.month} 月 {st_local.day} 日  "
-            f"{st_local.hour}:{st_local.minute:02d} ~ "
-            f"{et_local.hour}:{et_local.minute:02d}"
-        )
-    except (ValueError, TypeError):
-        return ""
-
-
-def _format_progress_text(best: SuMemberZoneProgress | None) -> str:
-    """从 best 提取最远进度文字。"""
-    if not best:
-        return ""
-    if best.clear:
-        return "已通关"
-    prog = best.progress
-    if not prog:
-        return ""
-    phase = prog.phase_name
-    hp = prog.enemy_hp
-    if phase and hp is not None:
-        return f"{phase} {hp * 100:.1f}%"
-    if phase:
-        return phase
-    if hp is not None:
-        return f"{hp * 100:.1f}%"
-    return ""
+    ids = sorted(p.job_id for p in fight.players)
+    return "|".join(str(i) for i in ids)
 
 
 def render_sumemo_overview_image(
     overview: SuMemberOverview,
-    parties: list[SuParty],
     output_path: Path,
     font_path: str | None = None,
+    latest: list[SuMemberZoneProgress] | None = None,
 ) -> None:
-    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，同一阵容且时间相邻的合并。"""
+    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，同阵容相邻合并，一排四个。"""
     name = overview.name
     server = overview.server
 
@@ -867,31 +834,20 @@ def render_sumemo_overview_image(
     zone_label = _sumemo_zone_name(zone_id, duty)
     fight = best.fight if best else None
 
-    # ── 过滤并合并同一阵容且时间相邻的队伍 ──
-    # 1. 过滤出当前副本的队伍
-    related: list[SuParty] = []
-    if parties:
-        for p in parties:
-            if zone_id in p.zone_ids:
-                related.append(p)
-
-    # 2. 相邻且同阵容（party_hash）的合并
-    party_groups: list[SuParty] = []
-    for p in related:
-        key = p.party_hash
-        if party_groups and (party_groups[-1].party_hash == key):
-            prev = party_groups[-1]
-            prev.session_count += p.session_count
-            if p.last_seen > prev.last_seen:
-                prev.last_seen = p.last_seen
-        else:
-            party_groups.append(SuParty(
-                members=list(p.members),
-                session_count=p.session_count,
-                last_seen=p.last_seen,
-                zone_ids=list(p.zone_ids),
-                party_hash=p.party_hash,
-            ))
+    # ── 从 latest 提取阵容，按 party_hash 合并相邻同阵容 ──
+    party_groups: list[list[SuPlayer]] = []
+    if latest:
+        for r in latest:
+            f = r.fight
+            if not f or not f.players:
+                continue
+            h = _party_hash_from_fight(f)
+            if party_groups and _party_hash_from_fight(SuFight(players=party_groups[-1], progress=None)) == h:
+                # 同阵容相邻 → 用人数更多的
+                if len(f.players) >= len(party_groups[-1]):
+                    party_groups[-1] = list(f.players)
+            else:
+                party_groups.append(list(f.players))
 
     # ── 计算高度 ──
     zh = 48
@@ -904,9 +860,8 @@ def render_sumemo_overview_image(
     roster_h = 0
     if party_groups:
         for pg in party_groups:
-            roster_h += 26
-            roster_h += 26
-            roster_h += len(pg.members) * 26
+            rows = (len(pg) + 3) // 4  # 一排四个
+            roster_h += 26 + rows * 26
             roster_h += 10
         roster_h += 18
 
@@ -974,39 +929,23 @@ def render_sumemo_overview_image(
         draw.text((card_x + 28, next_row + 2), "队伍阵容", font=small_font, fill=(88, 88, 94))
         next_row += 30
 
-        progress_text = _format_progress_text(best)
-        fight_time = _format_fight_time_range(fight)
+        col_w = (card_w - 56) // 4
 
         for pg in party_groups:
-            # 时间行
-            rel = _format_relative_time(pg.last_seen)
-            time_parts = [p for p in [rel, fight_time] if p]
-            time_line = "  ·  ".join(time_parts) if time_parts else ""
-            if time_line:
-                draw.text((card_x + 40, next_row + 2), time_line, font=tiny_font, fill=(140, 140, 146))
-                next_row += 26
-
-            # 统计行
-            stat_parts = []
-            if pg.session_count:
-                stat_parts.append(f"总场次  {pg.session_count}")
-            if progress_text:
-                stat_parts.append(f"最远进度  {progress_text}")
-            if stat_parts:
-                draw.text((card_x + 40, next_row + 2), "    ".join(stat_parts), font=small_font, fill=(80, 80, 86))
-                next_row += 26
-
-            # 成员
-            max_member_w = card_w - 72
-            for m in pg.members:
-                member_line = f"{m.name}@{m.server}"
-                if m.hidden:
-                    member_line += " 🔒"
-                while text_bbox_size(draw, member_line, tiny_font)[0] > max_member_w and len(member_line) > 10:
+            next_row += 26  # 组内第一行标题（用空白行分隔）
+            for pi, p in enumerate(pg):
+                col = pi % 4
+                row = pi // 4
+                px = card_x + 28 + col * col_w
+                py = next_row + row * 26
+                j_name = _sumemo_job_name(p.job_id)
+                member_line = f"{j_name} {p.name}@{p.server}"
+                # 截断过长
+                max_w = col_w - 8
+                while text_bbox_size(draw, member_line, tiny_font)[0] > max_w and len(member_line) > 10:
                     member_line = member_line[:-4] + "…"
-                draw.text((card_x + 52, next_row + 4), member_line, font=tiny_font, fill=(100, 100, 106))
-                next_row += 26
-
+                draw.text((px, py + 4), member_line, font=tiny_font, fill=(100, 100, 106))
+            next_row += ((len(pg) + 3) // 4) * 26
             next_row += 10
 
     image.save(output_path, format="JPEG", quality=90)
@@ -5581,9 +5520,8 @@ class TataruPlugin(Star):
         api_key = self.sumemo_api_key()
 
         try:
-            overview, parties_resp = await asyncio.gather(
-                sumemo_get_member_overview(name, server, base_url=base_url, api_key=api_key),
-                sumemo_get_member_parties(name, server, base_url=base_url, api_key=api_key),
+            overview = await sumemo_get_member_overview(
+                name, server, base_url=base_url, api_key=api_key
             )
         except Exception as exc:
             logger.warning(f"SuMemo 进度查询失败: {exc}")
@@ -5597,10 +5535,25 @@ class TataruPlugin(Star):
             )
             return
 
-        party_list = parties_resp.parties if parties_resp else []
+        # 找到第一个有进度的副本，拉取最近 50 条记录
+        latest_list: list[SuMemberZoneProgress] = []
+        for zid in SUMEMO_CURRENT_ZONES:
+            zone_data = overview.zones.get(str(zid))
+            if zone_data and zone_data.best is not None:
+                try:
+                    fetched = await sumemo_get_member_zone_latest(
+                        name, server, zid, base_url=base_url, api_key=api_key
+                    )
+                except Exception:
+                    fetched = None
+                if fetched:
+                    latest_list = fetched
+                break
 
         image_path = self.cache_dir / "sumemo_overview.jpg"
-        render_sumemo_overview_image(overview, party_list, image_path, self.configured_font_path())
+        render_sumemo_overview_image(overview, image_path,
+                                     font_path=self.configured_font_path(),
+                                     latest=latest_list or None)
         yield event.image_result(str(image_path))
 
     @filter.command("进度本")
