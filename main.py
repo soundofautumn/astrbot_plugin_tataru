@@ -1280,7 +1280,7 @@ def render_sumemo_parties_image(
     total_h -= gap
 
     height = padding_y * 2 + total_h
-    image = Image.new("RGB", (width, max(height, 200), (246, 247, 250)))
+    image = Image.new("RGB", (width, max(height, 200)), (246, 247, 250))
     draw = ImageDraw.Draw(image)
     y = padding_y
 
@@ -1359,6 +1359,7 @@ def render_sumemo_stats_image(
             zs = summaries_by_id.get(zid)
             if zs and zs.players > 0:
                 current_summaries.append(zs)
+                break  # 仅展示第一个有数据的当期副本
 
     zone_card_count = len(current_summaries)
     summary_card_h = 110
