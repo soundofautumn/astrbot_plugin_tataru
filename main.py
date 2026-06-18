@@ -913,9 +913,12 @@ def render_sumemo_overview_image(
                 pg["count"] += 1
                 pg["entries"].append(r)
                 if len(f.players) >= len(pg["players"]):
-                    pg["players"] = list(f.players)
+                    pg["players"] = sorted(f.players, key=lambda p: p.job_id)
             else:
-                party_groups.append({"players": list(f.players), "count": 1, "entries": [r]})
+                party_groups.append({
+                    "players": sorted(f.players, key=lambda p: p.job_id),
+                    "count": 1, "entries": [r]
+                })
 
     # ── 计算高度 ──
     zh = 48
@@ -1006,12 +1009,18 @@ def render_sumemo_overview_image(
 
         fight_time = _format_fight_time_range(fight)
         col_w = (card_w - 56) // 4
-        latest_seen = max((r.fight.start_time for r in (latest or []) if r.fight and r.fight.start_time), default="")
 
         for pg in party_groups:
+            # 本组最新时间
+            group_entries = pg["entries"]
+            group_fight_times = [e.fight for e in group_entries if e.fight and e.fight.start_time]
+            group_seen = max((f.start_time for f in group_fight_times), default="")
+            group_best_fight = max(group_fight_times, key=lambda f: (f.progress.phase if f.progress else 0), default=None)
+
             # 时间行
-            rel = _format_relative_time(latest_seen)
-            time_parts = [p for p in [rel, fight_time] if p]
+            rel = _format_relative_time(group_seen)
+            group_time_range = _format_fight_time_range(group_best_fight) if group_best_fight else fight_time
+            time_parts = [p for p in [rel, group_time_range] if p]
             time_line = "  ·  ".join(time_parts) if time_parts else ""
             if time_line:
                 draw.text((card_x + 40, next_row + 2), time_line, font=tiny_font, fill=(140, 140, 146))
