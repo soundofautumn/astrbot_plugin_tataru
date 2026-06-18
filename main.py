@@ -1029,7 +1029,16 @@ def render_sumemo_stats_image(
     refreshed = str(global_data.get("refreshed_at", ""))[:19].replace("T", " ")
 
     summaries = zone_summaries or []
-    zone_card_count = len(summaries)
+    # 仅取 SUMEMO_CURRENT_ZONES 中有数据的副本，按 dict 顺序排列
+    current_summaries: list[dict] = []
+    if summaries:
+        summaries_by_id = {s.get("zone_id", 0): s for s in summaries if isinstance(s, dict)}
+        for zid in SUMEMO_CURRENT_ZONES:
+            s = summaries_by_id.get(zid)
+            if s and s.get("players", 0) > 0:
+                current_summaries.append(s)
+
+    zone_card_count = len(current_summaries)
     summary_card_h = 110
     zone_rows_h = zone_card_count * 58 + 30 if zone_card_count else 0
     total_card_h = 100 + summary_card_h + zone_rows_h
@@ -1059,15 +1068,14 @@ def render_sumemo_stats_image(
         draw.text((sx, stat_y), value, font=big_font, fill=header_color)
         draw.text((sx, stat_y + 48), label, font=small_font, fill=(120, 120, 126))
 
-    if not summaries:
+    if not current_summaries:
         image.save(output_path, format="JPEG", quality=90)
         return
 
     draw.line((card_x + 28, stat_y + 80, card_x + card_w - 28, stat_y + 80), fill=(226, 226, 230), width=1)
     draw.text((card_x + 28, stat_y + 90), "各副本统计", font=body_font, fill=(88, 88, 94))
 
-    sorted_summaries = sorted(summaries, key=lambda s: s.get("players", 0), reverse=True)
-    for si, s in enumerate(sorted_summaries):
+    for si, s in enumerate(current_summaries):
         row_y = stat_y + 122 + si * 56
         zone_id = s.get("zone_id", 0)
         players = s.get("players", 0)
@@ -1079,9 +1087,7 @@ def render_sumemo_stats_image(
             draw.rectangle((card_x + 14, row_y - 4, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
 
         pct = f"{cleared / players * 100:.0f}%" if players else "0%"
-        is_current = zone_id in SUMEMO_CURRENT_ZONES
-        label_text = f"【当期】{zone_label}" if is_current else zone_label
-        draw.text((card_x + 28, row_y + 4), label_text, font=small_font, fill=header_color if is_current else (45, 45, 52))
+        draw.text((card_x + 28, row_y + 4), zone_label, font=small_font, fill=header_color)
         detail = f"玩家 {players:,}  |  通关 {cleared:,} ({pct})  |  场次 {fights_count:,}"
         draw.text((card_x + 28, row_y + 26), detail, font=small_font, fill=(120, 120, 126))
 
