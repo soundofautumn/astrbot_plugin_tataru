@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import html
 import json
@@ -441,6 +441,8 @@ SUMEMO_CURRENT_ZONES: dict[int, str] = {
     1327: "林德布鲁姆"
 }
 
+_SUMEMO_TZ = timezone(timedelta(hours=8))  # UTC+8 用于显示时间
+
 
 # ── SuMemo API 辅助函数 ──────────────────────────────────
 
@@ -579,13 +581,12 @@ def _format_relative_time(iso_str: str) -> str:
 
 
 def _format_fight_time_range(fight: dict | None) -> str:
-    """从 fight 的 start_time + duration 格式化时间范围。"""
+    """从 fight 的 start_time + duration 格式化为 UTC+8 时间范围。"""
     if not fight or not fight.get("start_time"):
         return ""
     try:
         st = datetime.fromisoformat(str(fight["start_time"]).replace("Z", "+00:00"))
-        offset = datetime.now().astimezone().utcoffset() or st.utcoffset() or timedelta()
-        st_local = st + offset
+        st_local = st.astimezone(_SUMEMO_TZ)
         dur_ns = fight.get("duration", 0) or 0
         et_local = st_local + timedelta(seconds=dur_ns / 1_000_000_000)
         return (
