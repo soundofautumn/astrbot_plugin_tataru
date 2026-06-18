@@ -5600,7 +5600,7 @@ class TataruPlugin(Star):
         party_list = parties_resp.parties if parties_resp else []
 
         image_path = self.cache_dir / "sumemo_overview.jpg"
-        render_sumemo_overview_image(overview, image_path, font_path=self.configured_font_path(), parties=party_list)
+        render_sumemo_overview_image(overview, party_list, image_path, self.configured_font_path())
         yield event.image_result(str(image_path))
 
     @filter.command("进度本")
