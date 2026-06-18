@@ -435,10 +435,19 @@ SUMEMO_JOB_ID_NAME: dict[int, str] = {
 # dict 的 key 顺序即为优先级顺序，进度查询时按此顺序从前往后展示有进度的副本。
 SUMEMO_CURRENT_ZONES: dict[int, str] = {
     1363: "妖星乱舞绝境战",
-    1321: "致命美人",
-    1323: "极限兄弟",
+    1327: "林德布鲁姆",
     1325: "霸王",
-    1327: "林德布鲁姆"
+    1323: "极限兄弟",
+    1321: "致命美人",
+}
+
+# 副本名 / 简称 → zone_id
+SUMEMO_ZONE_ALIASES: dict[str, int] = {
+    "妖星乱舞绝境战": 1363, "绝妖星乱舞": 1363, "绝妖星": 1363, "绝妖": 1363, "妖星": 1363,
+    "林德布鲁姆": 1327, "m12s": 1327,
+    "霸王": 1325, "m11s": 1325,
+    "极限兄弟": 1323, "m10s": 1323,
+    "致命美人": 1321, "m9s": 1321,
 }
 
 _SUMEMO_TZ = timezone(timedelta(hours=8))  # UTC+8 用于显示时间
@@ -756,6 +765,21 @@ def _sumemo_zone_name(zone_id: int, duty: SuDuty | None = None) -> str:
     if duty:
         return duty.name or SUMEMO_CURRENT_ZONES.get(zone_id) or f"副本 {zone_id}"
     return SUMEMO_CURRENT_ZONES.get(zone_id, f"副本 {zone_id}")
+
+
+def _resolve_zone_id(name_or_id: str) -> int | None:
+    """将副本名或 ID 字符串解析为 zone_id。"""
+    key = name_or_id.strip()
+    if key.isdigit():
+        return int(key)
+    zid = SUMEMO_ZONE_ALIASES.get(key)
+    if zid is not None:
+        return zid
+    lower = key.lower()
+    for alias, zid2 in SUMEMO_ZONE_ALIASES.items():
+        if lower in alias.lower() or alias.lower() in lower:
+            return zid2
+    return None
 
 
 def _sumemo_format_nanos(ns: int) -> str:
@@ -2198,7 +2222,7 @@ def create_help_text() -> str:
 [logs 角色名 服务器名 (国服/国际服)] 查询角色FFLogs战绩
 [抽卡] 随机抽取一张FF14塔罗牌
 [进度 角色名 服务器名] 查询角色 SuMemo 开荒总览
-[进度本 角色名 服务器名 副本ID] 查询角色某副本开荒详情
+[进度 角色名 服务器名 副本名] 查询角色某副本开荒详情
 [进度队 角色名 服务器名] 查询角色高难固定队
 [进度统计] 查看 SuMemo 全站统计数据
 """
@@ -5666,20 +5690,48 @@ class TataruPlugin(Star):
 
     @filter.command("进度")
     async def sumemo_progress(self, event: AstrMessageEvent):
-        """查询角色 SuMemo 开荒总览。"""
+        """查询角色 SuMemo 开荒总览或指定副本详情。"""
         arg = command_args(event.message_str, "进度").strip()
         parts = arg.split()
         if len(parts) < 2:
             yield event.plain_result(
-                "查进度格式：进度 角色名 服务器名\n例：进度 一色彩羽 银泪湖"
+                "查进度格式：进度 角色名 服务器名 (副本名)\n"
+                "例：进度 一色彩羽 银泪湖\n"
+                "例：进度 一色彩羽 银泪湖 妖星"
             )
             return
         name = parts[0]
         server = parts[1]
+        zone_name = parts[2] if len(parts) > 2 else ""
+        zone_id = _resolve_zone_id(zone_name) if zone_name else None
 
         base_url = self.sumemo_base_url()
         api_key = self.sumemo_api_key()
 
+        if zone_id is not None:
+            # 查询指定副本
+            if zone_id == 0:
+                yield event.plain_result(f"未识别副本名：{zone_name}")
+                return
+            try:
+                best = await sumemo_get_member_zone_best(
+                    name, server, zone_id, base_url=base_url, api_key=api_key
+                )
+            except Exception as exc:
+                logger.warning(f"SuMemo 副本进度查询失败: {exc}")
+                yield event.plain_result("SuMemo 查询失败，请稍后再试")
+                return
+            if best is None:
+                yield event.plain_result(
+                    f"未找到玩家 {name}@{server} 在副本 {zone_id} ({zone_name}) 的记录。"
+                )
+                return
+            image_path = self.cache_dir / "sumemo_zone.jpg"
+            render_sumemo_zone_best_image(best, image_path, font_path=self.configured_font_path())
+            yield event.image_result(str(image_path))
+            return
+
+        # 查询总览
         try:
             overview = await sumemo_get_member_overview(
                 name, server, base_url=base_url, api_key=api_key
@@ -5715,47 +5767,6 @@ class TataruPlugin(Star):
         render_sumemo_overview_image(overview, image_path,
                                      font_path=self.configured_font_path(),
                                      latest=latest_list or None)
-        yield event.image_result(str(image_path))
-
-    @filter.command("进度本")
-    async def sumemo_zone(self, event: AstrMessageEvent):
-        """查询角色某副本开荒详情。"""
-        arg = command_args(event.message_str, "进度本").strip()
-        parts = arg.split()
-        if len(parts) < 3:
-            yield event.plain_result(
-                "查副本进度格式：进度本 角色名 服务器名 副本ID\n"
-                "例：进度本 一色彩羽 银泪湖 104\n"
-                "常用副本ID：104=M12S门神 105=M12S本体 96=M4S 等"
-            )
-            return
-        name = parts[0]
-        server = parts[1]
-        try:
-            zone_id = int(parts[2])
-        except ValueError:
-            yield event.plain_result(f"副本ID应为数字，收到了：{parts[2]}")
-            return
-
-        try:
-            data = await sumemo_get_member_zone_best(
-                name, server, zone_id,
-                base_url=self.sumemo_base_url(),
-                api_key=self.sumemo_api_key(),
-            )
-        except Exception as exc:
-            logger.warning(f"SuMemo 副本进度查询失败: {exc}")
-            yield event.plain_result("SuMemo 查询失败，请稍后再试")
-            return
-
-        if data is None:
-            yield event.plain_result(
-                f"未找到玩家 {name}@{server} 在副本 {zone_id} 的记录。"
-            )
-            return
-
-        image_path = self.cache_dir / "sumemo_zone.jpg"
-        render_sumemo_zone_best_image(data, image_path, font_path=self.configured_font_path())
         yield event.image_result(str(image_path))
 
     @filter.command("进度队")
