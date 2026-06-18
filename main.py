@@ -608,11 +608,11 @@ def _format_progress_text(best: dict | None) -> str:
     phase = prog.get("phase_name", "")
     hp = prog.get("enemy_hp")
     if phase and hp is not None:
-        return f"{phase} {hp:.1f}%"
+        return f"{phase} {hp * 100:.1f}%"
     if phase:
         return phase
     if hp is not None:
-        return f"{hp:.1f}%"
+        return f"{hp * 100:.1f}%"
     return ""
 
 
@@ -753,7 +753,7 @@ def render_sumemo_overview_image(
             pill_fill = prog_color
             pill_text = phase_name or "开荒中"
             if enemy_hp is not None:
-                pill_text += f" {enemy_hp:.1f}%"
+                pill_text += f" {enemy_hp * 100:.1f}%"
     pill_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
     pill_x = card_x + card_w - pill_w - 36
     draw.rounded_rectangle((pill_x, row_y + 9, pill_x + pill_w, row_y + 37), radius=10, fill=pill_fill)
@@ -770,7 +770,7 @@ def render_sumemo_overview_image(
             if phase_name:
                 detail_parts.append(f"当前阶段：{phase_name}")
             if enemy_hp is not None:
-                detail_parts.append(f"剩余血量：{enemy_hp:.1f}%")
+                detail_parts.append(f"剩余血量：{enemy_hp * 100:.1f}%")
             if detail_parts:
                 draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
                 next_row += 24
@@ -883,7 +883,7 @@ def render_sumemo_zone_best_image(
     if phase_name and not clear:
         detail = f"阶段 {phase_name}"
         if enemy_hp is not None:
-            detail += f"  |  {enemy_hp:.1f}%"
+            detail += f"  |  {enemy_hp * 100:.1f}%"
         draw.text((card_x + 28, body_y + 34), detail, font=small_font, fill=(120, 120, 126))
 
     if fight and fight.get("duration"):
