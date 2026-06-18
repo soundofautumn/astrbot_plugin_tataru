@@ -1165,7 +1165,7 @@ def render_sumemo_zone_best_image(
 
     player_list = fight.players if fight else []
     player_rows = len(player_list)
-    body_h = 130 + max(player_rows, 0) * 34
+    body_h = 164 + max(player_rows, 0) * 34
     card_h = 82 + body_h
     height = 72 + card_h
     image = Image.new("RGB", (width, height), (246, 247, 250))
@@ -1187,19 +1187,25 @@ def render_sumemo_zone_best_image(
     status_w = text_bbox_size(draw, "进度：", body_font)[0]
     draw.text((card_x + 28 + status_w + 8, body_y), status, font=body_font, fill=status_color)
 
-    detail = ""
-    if phase_name and not clear:
+    detail_y = body_y + 34
+    has_detail = bool(phase_name and not clear)
+    if has_detail:
         detail = f"阶段 {phase_name}"
         if enemy_hp is not None:
             detail += f"  |  {enemy_hp * 100:.1f}%"
-        draw.text((card_x + 28, body_y + 34), detail, font=small_font, fill=(120, 120, 126))
+        draw.text((card_x + 28, detail_y), detail, font=small_font, fill=(120, 120, 126))
 
     if fight and fight.duration:
         dur = _sumemo_format_nanos(fight.duration)
-        draw.text((card_x + card_w - 160, body_y), f"时长 {dur}", font=small_font, fill=(120, 120, 126))
+        time_range = _format_fight_time_range(fight)
+        if time_range:
+            line_y = detail_y + 34 if has_detail else detail_y
+            draw.text((card_x + 28, line_y), f"{time_range}  ·  时长 {dur}", font=small_font, fill=(120, 120, 126))
+        else:
+            draw.text((card_x + card_w - 160, body_y), f"时长 {dur}", font=small_font, fill=(120, 120, 126))
 
     if player_list:
-        roster_y = body_y + 64
+        roster_y = detail_y + (34 if has_detail else 0) + (34 if fight and fight.duration and _format_fight_time_range(fight) else 0) + 30
         draw.text((card_x + 28, roster_y - 28), "阵容", font=small_font, fill=(88, 88, 94))
         draw.line((card_x + 28, roster_y - 10, card_x + card_w - 28, roster_y - 10), fill=(226, 226, 230), width=1)
         cols = 2
