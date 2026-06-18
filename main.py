@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import html
 import json
@@ -409,25 +409,25 @@ SUMEMO_JOB_ID_NAME: dict[int, str] = {
     19: "骑士",
     20: "武僧",
     21: "战士",
-    22: "龙骑士",
+    22: "龙骑",
     23: "诗人",
-    24: "白魔法师",
-    25: "黑魔法师",
-    27: "召唤师",
+    24: "白魔",
+    25: "黑魔",
+    27: "召唤",
     28: "学者",
     30: "忍者",
-    31: "机工士",
-    32: "暗黑骑士",
-    33: "占星术士",
+    31: "机工",
+    32: "黑骑",
+    33: "占星",
     34: "武士",
-    35: "赤魔法师",
-    36: "青魔法师",
-    37: "绝枪战士",
+    35: "赤魔",
+    36: "青魔",
+    37: "绝枪",
     38: "舞者",
-    39: "钐镰客",
+    39: "镰刀",
     40: "贤者",
-    41: "蝰蛇剑士",
-    42: "绘灵法师",
+    41: "蝰蛇",
+    42: "画家",
     43: "魔兽使",
 }
 
@@ -440,6 +440,8 @@ SUMEMO_CURRENT_ZONES: dict[int, str] = {
     1325: "霸王",
     1327: "林德布鲁姆"
 }
+
+_SUMEMO_TZ = timezone(timedelta(hours=8))  # UTC+8 用于显示时间
 
 
 # ── SuMemo 数据结构 ──────────────────────────────────────
@@ -764,13 +766,59 @@ def _sumemo_format_nanos(ns: int) -> str:
     return f"{seconds}秒"
 
 
-
-def _party_hash_from_fight(fight: SuFight | None) -> str:
-    """从 fight 的 players 推算 party_hash（排序后的 job_id 列表拼接）。"""
-    if not fight or not fight.players:
+def _format_relative_time(iso_str: str) -> str:
+    if not iso_str:
         return ""
-    ids = sorted(p.job_id for p in fight.players)
-    return "|".join(str(i) for i in ids)
+    try:
+        t = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        diff = datetime.now(t.tzinfo) - t
+        if diff.days > 30:
+            return f"{diff.days // 30} 个月前"
+        if diff.days > 0:
+            return f"{diff.days} 天前"
+        if diff.seconds >= 3600:
+            return f"{diff.seconds // 3600} 小时前"
+        if diff.seconds >= 60:
+            return f"{diff.seconds // 60} 分钟前"
+        return "刚刚"
+    except (ValueError, TypeError):
+        return ""
+
+
+def _format_fight_time_range(fight: SuFight | None) -> str:
+    if not fight or not fight.start_time:
+        return ""
+    try:
+        st = datetime.fromisoformat(fight.start_time.replace("Z", "+00:00"))
+        st_local = st.astimezone(_SUMEMO_TZ)
+        dur_ns = fight.duration or 0
+        et_local = st_local + timedelta(seconds=dur_ns / 1_000_000_000)
+        return (
+            f"{st_local.month} 月 {st_local.day} 日  "
+            f"{st_local.hour}:{st_local.minute:02d} ~ "
+            f"{et_local.hour}:{et_local.minute:02d}"
+        )
+    except (ValueError, TypeError):
+        return ""
+
+
+def _format_progress_text(best: SuMemberZoneProgress | None) -> str:
+    if not best:
+        return ""
+    if best.clear:
+        return "已通关"
+    prog = best.progress
+    if not prog:
+        return ""
+    phase = prog.phase_name
+    hp = prog.enemy_hp
+    if phase and hp is not None:
+        return f"{phase} {hp * 100:.1f}%"
+    if phase:
+        return phase
+    if hp is not None:
+        return f"{hp * 100:.1f}%"
+    return ""
 
 
 def _party_hash_from_fight(fight: SuFight | None) -> str:
@@ -835,19 +883,20 @@ def render_sumemo_overview_image(
     fight = best.fight if best else None
 
     # ── 从 latest 提取阵容，按 party_hash 合并相邻同阵容 ──
-    party_groups: list[list[SuPlayer]] = []
+    party_groups: list[dict] = []  # {"players": list[SuPlayer], "count": int}
     if latest:
         for r in latest:
             f = r.fight
             if not f or not f.players:
                 continue
             h = _party_hash_from_fight(f)
-            if party_groups and _party_hash_from_fight(SuFight(players=party_groups[-1], progress=None)) == h:
-                # 同阵容相邻 → 用人数更多的
-                if len(f.players) >= len(party_groups[-1]):
-                    party_groups[-1] = list(f.players)
+            if party_groups and _party_hash_from_fight(SuFight(players=party_groups[-1]["players"], progress=None)) == h:
+                pg = party_groups[-1]
+                pg["count"] += 1
+                if len(f.players) >= len(pg["players"]):
+                    pg["players"] = list(f.players)
             else:
-                party_groups.append(list(f.players))
+                party_groups.append({"players": list(f.players), "count": 1})
 
     # ── 计算高度 ──
     zh = 48
@@ -860,8 +909,8 @@ def render_sumemo_overview_image(
     roster_h = 0
     if party_groups:
         for pg in party_groups:
-            rows = (len(pg) + 3) // 4  # 一排四个
-            roster_h += 26 + rows * 26
+            rows = (len(pg["players"]) + 3) // 4  # 一排四个
+            roster_h += 26 + 26 + rows * 26  # 时间行 + 统计行 + 成员
             roster_h += 10
         roster_h += 18
 
@@ -929,11 +978,32 @@ def render_sumemo_overview_image(
         draw.text((card_x + 28, next_row + 2), "队伍阵容", font=small_font, fill=(88, 88, 94))
         next_row += 30
 
+        progress_text = _format_progress_text(best)
+        fight_time = _format_fight_time_range(fight)
         col_w = (card_w - 56) // 4
 
+        latest_seen = max((r.fight.start_time for r in (latest or []) if r.fight and r.fight.start_time), default="")
+
         for pg in party_groups:
-            next_row += 26  # 组内第一行标题（用空白行分隔）
-            for pi, p in enumerate(pg):
+            # 时间行
+            rel = _format_relative_time(latest_seen)
+            time_parts = [p for p in [rel, fight_time] if p]
+            time_line = "  ·  ".join(time_parts) if time_parts else ""
+            if time_line:
+                draw.text((card_x + 40, next_row + 2), time_line, font=tiny_font, fill=(140, 140, 146))
+                next_row += 26
+
+            # 统计行
+            stat_parts = []
+            if pg["count"]:
+                stat_parts.append(f"总场次  {pg['count']}")
+            if progress_text:
+                stat_parts.append(f"最远进度  {progress_text}")
+            if stat_parts:
+                draw.text((card_x + 40, next_row + 2), "    ".join(stat_parts), font=small_font, fill=(80, 80, 86))
+                next_row += 26
+
+            for pi, p in enumerate(pg["players"]):
                 col = pi % 4
                 row = pi // 4
                 px = card_x + 28 + col * col_w
@@ -945,7 +1015,7 @@ def render_sumemo_overview_image(
                 while text_bbox_size(draw, member_line, tiny_font)[0] > max_w and len(member_line) > 10:
                     member_line = member_line[:-4] + "…"
                 draw.text((px, py + 4), member_line, font=tiny_font, fill=(100, 100, 106))
-            next_row += ((len(pg) + 3) // 4) * 26
+            next_row += ((len(pg["players"]) + 3) // 4) * 26
             next_row += 10
 
     image.save(output_path, format="JPEG", quality=90)
