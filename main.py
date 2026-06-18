@@ -971,10 +971,8 @@ def render_sumemo_overview_image(
 
     # ── 计算高度 ──
     zh = 48
-    if best and not best.clear:
-        if best.progress and (best.progress.phase_name or best.progress.enemy_hp is not None):
-            zh += 24
-    if fight and fight.duration:
+    has_info = (best and not best.clear and best.progress and (best.progress.phase_name or best.progress.enemy_hp is not None)) or (fight and fight.duration)
+    if has_info:
         zh += 24
 
     roster_h = 0
@@ -1033,20 +1031,26 @@ def render_sumemo_overview_image(
     draw.text((pill_x + 12, row_y + 12), pill_text, font=small_font, fill=(255, 255, 255))
     next_row = row_y + 48
 
-    if best:
-        if not best.clear:
-            phase_name = best.progress.phase_name if best.progress else ""
-            enemy_hp = best.progress.enemy_hp if best.progress else None
-            detail_parts = []
-            if phase_name:
-                detail_parts.append(f"当前阶段：{phase_name}")
+    # ── 单行信息 ──
+    info_parts: list[str] = []
+    if best and not best.clear:
+        phase_name = best.progress.phase_name if best.progress else ""
+        enemy_hp = best.progress.enemy_hp if best.progress else None
+        if phase_name or enemy_hp is not None:
+            phase_hp = f"阶段 {phase_name}" if phase_name else ""
             if enemy_hp is not None:
-                detail_parts.append(f"余{enemy_hp*100:5.1f}%")
-            if detail_parts:
-                draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
-                next_row += 24
-        if fight and fight.duration:
-            draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(fight.duration)}", font=tiny_font, fill=(140, 140, 146))
+                phase_hp += f"  |  余{enemy_hp*100:5.1f}%" if phase_hp else f"余{enemy_hp*100:5.1f}%"
+            info_parts.append(phase_hp)
+    if fight and fight.duration:
+        dur = _sumemo_format_nanos(fight.duration)
+        time_range = _format_fight_time_range(fight)
+        if time_range:
+            info_parts.append(f"{time_range}  ·  时长 {dur}")
+        else:
+            info_parts.append(f"时长 {dur}")
+    if info_parts:
+        draw.text((card_x + 40, next_row + 2), "  |  ".join(info_parts), font=small_font, fill=(120, 120, 126))
+        next_row += 24
 
     # ── 队伍阵容 ──
     if party_groups:
