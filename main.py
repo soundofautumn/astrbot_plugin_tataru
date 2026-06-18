@@ -444,6 +444,187 @@ SUMEMO_CURRENT_ZONES: dict[int, str] = {
 _SUMEMO_TZ = timezone(timedelta(hours=8))  # UTC+8 用于显示时间
 
 
+# ── SuMemo 数据结构 ──────────────────────────────────────
+
+@dataclass
+class SuMember:
+    name: str = ""
+    server: str = ""
+    hidden: bool = False
+
+
+@dataclass
+class SuPlayer:
+    name: str = ""
+    server: str = ""
+    job_id: int = 0
+    level: int = 0
+    death_count: int = 0
+
+
+@dataclass
+class SuFightProgress:
+    phase: int = 0
+    phase_name: str = ""
+    enemy_id: int = 0
+    enemy_hp: float | None = None
+
+
+@dataclass
+class SuFight:
+    players: list[SuPlayer]
+    progress: SuFightProgress | None
+    start_time: str = ""
+    duration: int = 0
+    zone_id: int = 0
+    clear: bool = False
+
+
+@dataclass
+class SuMemberZoneProgress:
+    name: str = ""
+    server: str = ""
+    zone_id: int = 0
+    clear: bool = False
+    progress: SuFightProgress | None = None
+    fight: SuFight | None = None
+
+
+@dataclass
+class SuDuty:
+    zone_id: int = 0
+    name: str = ""
+
+
+@dataclass
+class SuMemberOverviewZone:
+    duty: SuDuty
+    best: SuMemberZoneProgress | None = None
+
+
+@dataclass
+class SuParty:
+    members: list[SuMember]
+    session_count: int = 0
+    last_seen: str = ""
+    zone_ids: list[int] = ()
+    party_hash: str = ""
+
+
+@dataclass
+class SuZoneSummary:
+    zone_id: int = 0
+    players: int = 0
+    cleared_players: int = 0
+    fights: int = 0
+
+
+@dataclass
+class SuMemberOverview:
+    name: str
+    server: str
+    zones: dict[str, SuMemberOverviewZone]
+
+
+@dataclass
+class SuPartiesResponse:
+    member: SuMember
+    parties: list[SuParty]
+
+
+# ── SuMemo 内部解析函数 ────────────────────────────────
+
+
+def _parse_member(d: dict | None) -> SuMember:
+    if not isinstance(d, dict):
+        return SuMember()
+    return SuMember(
+        name=str(d.get("name", "")),
+        server=str(d.get("server", "")),
+        hidden=bool(d.get("hidden", False)),
+    )
+
+
+def _parse_player(d: dict) -> SuPlayer:
+    return SuPlayer(
+        name=str(d.get("name", "")),
+        server=str(d.get("server", "")),
+        job_id=int(d.get("job_id", 0) or 0),
+        level=int(d.get("level", 0) or 0),
+        death_count=int(d.get("death_count", 0) or 0),
+    )
+
+
+def _parse_fight_progress(d: dict | None) -> SuFightProgress | None:
+    if not isinstance(d, dict):
+        return None
+    return SuFightProgress(
+        phase=int(d.get("phase", 0) or 0),
+        phase_name=str(d.get("phase_name", "")),
+        enemy_id=int(d.get("enemy_id", 0) or 0),
+        enemy_hp=d.get("enemy_hp"),
+    )
+
+
+def _parse_fight(d: dict | None) -> SuFight | None:
+    if not isinstance(d, dict):
+        return None
+    return SuFight(
+        players=[_parse_player(p) for p in (d.get("players") or []) if isinstance(p, dict)],
+        progress=_parse_fight_progress(d.get("progress")),
+        start_time=str(d.get("start_time", "")),
+        duration=int(d.get("duration", 0) or 0),
+        zone_id=int(d.get("zone_id", 0) or 0),
+        clear=bool(d.get("clear", False)),
+    )
+
+
+def _parse_member_zone_progress(d: dict) -> SuMemberZoneProgress:
+    return SuMemberZoneProgress(
+        name=str(d.get("name", "")),
+        server=str(d.get("server", "")),
+        zone_id=int(d.get("zone_id", 0) or 0),
+        clear=bool(d.get("clear", False)),
+        progress=_parse_fight_progress(d.get("progress")),
+        fight=_parse_fight(d.get("fight")),
+    )
+
+
+def _parse_duty(d: dict | None) -> SuDuty:
+    if not isinstance(d, dict):
+        return SuDuty()
+    return SuDuty(
+        zone_id=int(d.get("zone_id", 0) or 0),
+        name=str(d.get("name", "")),
+    )
+
+
+def _parse_overview_zone(d: dict) -> SuMemberOverviewZone:
+    return SuMemberOverviewZone(
+        duty=_parse_duty(d.get("duty")),
+        best=_parse_member_zone_progress(d["best"]) if isinstance(d.get("best"), dict) else None,
+    )
+
+
+def _parse_party(d: dict) -> SuParty:
+    return SuParty(
+        members=[_parse_member(m) for m in (d.get("members") or []) if isinstance(m, dict)],
+        session_count=int(d.get("session_count", 0) or 0),
+        last_seen=str(d.get("last_seen", "")),
+        zone_ids=[int(z) for z in (d.get("zone_ids") or [])],
+        party_hash=str(d.get("party_hash", "")),
+    )
+
+
+def _parse_zone_summary(d: dict) -> SuZoneSummary:
+    return SuZoneSummary(
+        zone_id=int(d.get("zone_id", 0) or 0),
+        players=int(d.get("players", 0) or 0),
+        cleared_players=int(d.get("cleared_players", 0) or 0),
+        fights=int(d.get("fights", 0) or 0),
+    )
+
+
 # ── SuMemo API 辅助函数 ──────────────────────────────────
 
 
@@ -492,27 +673,46 @@ def _sumemo_resolve_base_url(base_url: str | None) -> str:
 
 async def sumemo_get_member_overview(
     name: str, server: str, base_url: str | None = None, api_key: str = ""
-) -> dict | None:
+) -> SuMemberOverview | None:
     url = f"{_sumemo_resolve_base_url(base_url)}/member/{name}@{server}/overview"
     data = await _sumemo_get(url, api_key)
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    zones: dict[str, SuMemberOverviewZone] = {}
+    raw_zones = data.get("zones")
+    if isinstance(raw_zones, dict):
+        for zid, z in raw_zones.items():
+            if isinstance(z, dict):
+                zones[zid] = _parse_overview_zone(z)
+    return SuMemberOverview(
+        name=str(data.get("name", name)),
+        server=str(data.get("server", server)),
+        zones=zones,
+    )
 
 
 async def sumemo_get_member_zone_best(
     name: str, server: str, zone_id: int,
     base_url: str | None = None, api_key: str = ""
-) -> dict | None:
+) -> SuMemberZoneProgress | None:
     url = f"{_sumemo_resolve_base_url(base_url)}/member/{name}@{server}/{zone_id}/best"
     data = await _sumemo_get(url, api_key)
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    return _parse_member_zone_progress(data)
 
 
 async def sumemo_get_member_parties(
     name: str, server: str, base_url: str | None = None, api_key: str = ""
-) -> dict | None:
+) -> SuPartiesResponse | None:
     url = f"{_sumemo_resolve_base_url(base_url)}/member/{name}@{server}/parties"
     data = await _sumemo_get(url, api_key)
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    return SuPartiesResponse(
+        member=_parse_member(data.get("member")),
+        parties=[_parse_party(p) for p in (data.get("parties") or []) if isinstance(p, dict)],
+    )
 
 
 async def sumemo_get_global_summary(
@@ -538,9 +738,9 @@ def _sumemo_job_name(job_id: int) -> str:
     return SUMEMO_JOB_ID_NAME.get(job_id, f"职业#{job_id}")
 
 
-def _sumemo_zone_name(zone_id: int, duty: dict | None = None) -> str:
+def _sumemo_zone_name(zone_id: int, duty: SuDuty | None = None) -> str:
     if duty:
-        return duty.get("name") or SUMEMO_CURRENT_ZONES.get(zone_id) or f"副本 {zone_id}"
+        return duty.name or SUMEMO_CURRENT_ZONES.get(zone_id) or f"副本 {zone_id}"
     return SUMEMO_CURRENT_ZONES.get(zone_id, f"副本 {zone_id}")
 
 
@@ -555,9 +755,9 @@ def _sumemo_format_nanos(ns: int) -> str:
     return f"{seconds}秒"
 
 
-def _party_hash_key(p: dict) -> str:
+def _party_hash_key(p: SuParty) -> str:
     """返回阵容的 party_hash 标识。"""
-    return str(p.get("party_hash", ""))
+    return p.party_hash
 
 
 def _format_relative_time(iso_str: str) -> str:
@@ -580,14 +780,14 @@ def _format_relative_time(iso_str: str) -> str:
         return ""
 
 
-def _format_fight_time_range(fight: dict | None) -> str:
+def _format_fight_time_range(fight: SuFight | None) -> str:
     """从 fight 的 start_time + duration 格式化为 UTC+8 时间范围。"""
-    if not fight or not fight.get("start_time"):
+    if not fight or not fight.start_time:
         return ""
     try:
-        st = datetime.fromisoformat(str(fight["start_time"]).replace("Z", "+00:00"))
+        st = datetime.fromisoformat(fight.start_time.replace("Z", "+00:00"))
         st_local = st.astimezone(_SUMEMO_TZ)
-        dur_ns = fight.get("duration", 0) or 0
+        dur_ns = fight.duration or 0
         et_local = st_local + timedelta(seconds=dur_ns / 1_000_000_000)
         return (
             f"{st_local.month} 月 {st_local.day} 日  "
@@ -598,15 +798,17 @@ def _format_fight_time_range(fight: dict | None) -> str:
         return ""
 
 
-def _format_progress_text(best: dict | None) -> str:
+def _format_progress_text(best: SuMemberZoneProgress | None) -> str:
     """从 best 提取最远进度文字。"""
     if not best:
         return ""
-    if best.get("clear", False):
+    if best.clear:
         return "已通关"
-    prog = best.get("progress") or {}
-    phase = prog.get("phase_name", "")
-    hp = prog.get("enemy_hp")
+    prog = best.progress
+    if not prog:
+        return ""
+    phase = prog.phase_name
+    hp = prog.enemy_hp
     if phase and hp is not None:
         return f"{phase} {hp * 100:.1f}%"
     if phase:
@@ -617,21 +819,20 @@ def _format_progress_text(best: dict | None) -> str:
 
 
 def render_sumemo_overview_image(
-    data: dict,
+    overview: SuMemberOverview,
     output_path: Path,
     font_path: str | None = None,
-    parties: list[dict] | None = None,
+    parties: list[SuParty] | None = None,
 ) -> None:
     """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，同一阵容且时间相邻的合并。"""
-    name = data.get("name", "?")
-    server = data.get("server", "?")
-    all_zones: dict[str, dict] = data.get("zones", {}) or {}
+    name = overview.name
+    server = overview.server
 
     # 按 SUMEMO_CURRENT_ZONES 顺序遍历，仅取第一个有进度的副本
-    first_zone: tuple[int, dict] | None = None
+    first_zone: tuple[int, SuMemberOverviewZone] | None = None
     for zid in SUMEMO_CURRENT_ZONES:
-        zone_data = all_zones.get(str(zid))
-        if zone_data and zone_data.get("best") is not None:
+        zone_data = overview.zones.get(str(zid))
+        if zone_data and zone_data.best is not None:
             first_zone = (zid, zone_data)
             break
 
@@ -665,56 +866,53 @@ def render_sumemo_overview_image(
         return
 
     zone_id, zone_data = first_zone
-    duty = zone_data.get("duty", {})
-    best = zone_data.get("best")
+    duty = zone_data.duty
+    best = zone_data.best
     zone_label = _sumemo_zone_name(zone_id, duty)
-    fight = best.get("fight") if best else None
+    fight = best.fight if best else None
 
     # ── 过滤并合并同一阵容且时间相邻的队伍 ──
     # 1. 过滤出当前副本的队伍
-    related: list[dict] = []
+    related: list[SuParty] = []
     if parties:
         for p in parties:
-            if zone_id in (p.get("zone_ids") or []):
+            if zone_id in p.zone_ids:
                 related.append(p)
 
     # 2. 相邻且同阵容（party_hash）的合并
-    party_groups: list[dict] = []
+    party_groups: list[SuParty] = []
     for p in related:
         key = _party_hash_key(p)
         if party_groups and _party_hash_key(party_groups[-1]) == key:
-            # 同阵容相邻 → 合并
             prev = party_groups[-1]
-            prev["session_count"] = prev.get("session_count", 0) + p.get("session_count", 0)
-            ls = str(p.get("last_seen", ""))
-            if ls > str(prev.get("last_seen", "")):
-                prev["last_seen"] = ls
+            prev.session_count += p.session_count
+            if p.last_seen > prev.last_seen:
+                prev.last_seen = p.last_seen
         else:
-            party_groups.append({
-                "members": p.get("members", []),
-                "session_count": p.get("session_count", 0),
-                "last_seen": p.get("last_seen", ""),
-            })
+            party_groups.append(SuParty(
+                members=list(p.members),
+                session_count=p.session_count,
+                last_seen=p.last_seen,
+                zone_ids=list(p.zone_ids),
+                party_hash=p.party_hash,
+            ))
 
     # ── 计算高度 ──
-    # 副本标题行 + 阶段/HP + 时长
     zh = 48
-    if best and not best.get("clear", False):
-        prog = best.get("progress") or {}
-        if prog.get("phase_name") or prog.get("enemy_hp") is not None:
+    if best and not best.clear:
+        if best.progress and (best.progress.phase_name or best.progress.enemy_hp is not None):
             zh += 24
-    if fight and fight.get("duration"):
+    if fight and fight.duration:
         zh += 24
 
-    # 阵容组
     roster_h = 0
     if party_groups:
         for pg in party_groups:
-            roster_h += 26  # 时间行
-            roster_h += 26  # 统计行
-            roster_h += len(pg["members"]) * 26  # 成员
-            roster_h += 10  # 组间距
-        roster_h += 18  # "队伍阵容" 标题 + 分割线
+            roster_h += 26
+            roster_h += 26
+            roster_h += len(pg.members) * 26
+            roster_h += 10
+        roster_h += 18
 
     total_h = zh + roster_h
     card_h = 84 + total_h
@@ -742,14 +940,12 @@ def render_sumemo_overview_image(
         pill_fill = (200, 200, 206)
         pill_text = "无记录"
     else:
-        clear = best.get("clear", False)
-        if clear:
+        if best.clear:
             pill_fill = clear_color
             pill_text = "已通关"
         else:
-            prog = best.get("progress") or {}
-            phase_name = prog.get("phase_name", "")
-            enemy_hp = prog.get("enemy_hp")
+            phase_name = best.progress.phase_name if best.progress else ""
+            enemy_hp = best.progress.enemy_hp if best.progress else None
             pill_fill = prog_color
             pill_text = phase_name or "开荒中"
             if enemy_hp is not None:
@@ -761,11 +957,9 @@ def render_sumemo_overview_image(
     next_row = row_y + 48
 
     if best:
-        clear = best.get("clear", False)
-        prog = best.get("progress") or {}
-        if not clear:
-            phase_name = prog.get("phase_name", "")
-            enemy_hp = prog.get("enemy_hp")
+        if not best.clear:
+            phase_name = best.progress.phase_name if best.progress else ""
+            enemy_hp = best.progress.enemy_hp if best.progress else None
             detail_parts = []
             if phase_name:
                 detail_parts.append(f"当前阶段：{phase_name}")
@@ -774,8 +968,8 @@ def render_sumemo_overview_image(
             if detail_parts:
                 draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
                 next_row += 24
-        if fight and fight.get("duration"):
-            draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(fight['duration'])}", font=tiny_font, fill=(140, 140, 146))
+        if fight and fight.duration:
+            draw.text((card_x + card_w - 180, next_row + 2), f"时长 {_sumemo_format_nanos(fight.duration)}", font=tiny_font, fill=(140, 140, 146))
 
     # ── 队伍阵容 ──
     if party_groups:
@@ -787,59 +981,53 @@ def render_sumemo_overview_image(
         progress_text = _format_progress_text(best)
         fight_time = _format_fight_time_range(fight)
 
-        for group_idx, pg in enumerate(party_groups):
-            members_list = pg["members"]
-            sessions = pg["session_count"]
-            last_seen = str(pg["last_seen"])
-
-            # 时间行：相对时间 + fight 时间
-            rel = _format_relative_time(last_seen)
+        for pg in party_groups:
+            # 时间行
+            rel = _format_relative_time(pg.last_seen)
             time_parts = [p for p in [rel, fight_time] if p]
             time_line = "  ·  ".join(time_parts) if time_parts else ""
             if time_line:
                 draw.text((card_x + 40, next_row + 2), time_line, font=tiny_font, fill=(140, 140, 146))
                 next_row += 26
 
-            # 统计行：总场次 + 最远进度
+            # 统计行
             stat_parts = []
-            if sessions:
-                stat_parts.append(f"总场次  {sessions}")
+            if pg.session_count:
+                stat_parts.append(f"总场次  {pg.session_count}")
             if progress_text:
                 stat_parts.append(f"最远进度  {progress_text}")
             if stat_parts:
                 draw.text((card_x + 40, next_row + 2), "    ".join(stat_parts), font=small_font, fill=(80, 80, 86))
                 next_row += 26
 
-            # 成员：单列
+            # 成员
             max_member_w = card_w - 72
-            for m in members_list:
-                m_name = m.get("name", "?")
-                m_server = m.get("server", "")
-                hidden = " 🔒" if m.get("hidden") else ""
-                member_line = f"{m_name}@{m_server}{hidden}"
+            for m in pg.members:
+                member_line = f"{m.name}@{m.server}"
+                if m.hidden:
+                    member_line += " 🔒"
                 while text_bbox_size(draw, member_line, tiny_font)[0] > max_member_w and len(member_line) > 10:
                     member_line = member_line[:-4] + "…"
                 draw.text((card_x + 52, next_row + 4), member_line, font=tiny_font, fill=(100, 100, 106))
                 next_row += 26
 
-            # 组间间距
             next_row += 10
 
     image.save(output_path, format="JPEG", quality=90)
 
 
 def render_sumemo_zone_best_image(
-    data: dict,
+    best: SuMemberZoneProgress,
     output_path: Path,
     font_path: str | None = None,
 ) -> None:
     """渲染副本最佳进度为卡片式图片。"""
-    name = data.get("name", "?")
-    server = data.get("server", "?")
-    zone_id = data.get("zone_id", 0)
-    clear = data.get("clear", False)
-    progress = data.get("progress") or {}
-    fight = data.get("fight")
+    name = best.name or "?"
+    server = best.server or "?"
+    zone_id = best.zone_id
+    clear = best.clear
+    progress = best.progress
+    fight = best.fight
     zone_label = _sumemo_zone_name(zone_id)
 
     width = 920
@@ -852,11 +1040,11 @@ def render_sumemo_zone_best_image(
     small_font = load_render_font(font_path, 17)
     big_font = load_render_font(font_path, 38)
 
-    phase_name = progress.get("phase_name", "")
-    enemy_hp = progress.get("enemy_hp")
+    phase_name = progress.phase_name if progress else ""
+    enemy_hp = progress.enemy_hp if progress else None
 
-    players = fight.get("players", []) if fight else []
-    player_rows = len(players)
+    player_list = fight.players if fight else []
+    player_rows = len(player_list)
     body_h = 130 + max(player_rows, 0) * 34
     card_h = 82 + body_h
     height = 72 + card_h
@@ -886,24 +1074,24 @@ def render_sumemo_zone_best_image(
             detail += f"  |  {enemy_hp * 100:.1f}%"
         draw.text((card_x + 28, body_y + 34), detail, font=small_font, fill=(120, 120, 126))
 
-    if fight and fight.get("duration"):
-        dur = _sumemo_format_nanos(fight["duration"])
+    if fight and fight.duration:
+        dur = _sumemo_format_nanos(fight.duration)
         draw.text((card_x + card_w - 160, body_y), f"时长 {dur}", font=small_font, fill=(120, 120, 126))
 
-    if players:
+    if player_list:
         roster_y = body_y + 64
         draw.text((card_x + 28, roster_y - 28), "阵容", font=small_font, fill=(88, 88, 94))
         draw.line((card_x + 28, roster_y - 10, card_x + card_w - 28, roster_y - 10), fill=(226, 226, 230), width=1)
         cols = 2
         col_w = (card_w - 56) // cols
-        for pi, p in enumerate(players):
+        for pi, p in enumerate(player_list):
             col = pi % cols
             px = card_x + 28 + col * col_w
             py = roster_y + (pi // cols) * 32
-            j_name = _sumemo_job_name(p.get("job_id", 0))
-            p_name = p.get("name", "?")
-            p_server = p.get("server", "")
-            deaths = p.get("death_count", 0)
+            j_name = _sumemo_job_name(p.job_id)
+            p_name = p.name or "?"
+            p_server = p.server or ""
+            deaths = p.death_count
             death_text = f"  ☠×{deaths}" if deaths else ""
             line = f"{j_name}  {p_name}@{p_server}{death_text}"
             draw.text((px, py), line, font=small_font, fill=(80, 80, 86))
@@ -912,15 +1100,14 @@ def render_sumemo_zone_best_image(
 
 
 def render_sumemo_parties_image(
-    data: dict,
+    response: SuPartiesResponse,
     output_path: Path,
     font_path: str | None = None,
 ) -> None:
     """渲染高难队伍为卡片式图片。"""
-    member = data.get("member", {})
-    name = member.get("name", "?")
-    server = member.get("server", "?")
-    parties = data.get("parties", [])
+    name = response.member.name or "?"
+    server = response.member.server or "?"
+    parties = response.parties
 
     width = 920
     card_x = 24
@@ -952,8 +1139,7 @@ def render_sumemo_parties_image(
     party_cards: list[dict] = []
     total_h = 0
     for party in parties:
-        members_list = party.get("members", [])
-        member_count = len(members_list)
+        member_count = len(party.members)
         rows = (member_count + 1) // 2
         card_h = 100 + max(rows, 1) * 30
         party_cards.append({"party": party, "card_h": card_h, "member_count": member_count})
@@ -966,12 +1152,11 @@ def render_sumemo_parties_image(
     y = padding_y
 
     for pi, pc in enumerate(party_cards):
-        party = pc["party"]
+        party: SuParty = pc["party"]
         card_h = pc["card_h"]
-        members_list = party.get("members", [])
-        session_count = party.get("session_count", 0)
-        last_seen = str(party.get("last_seen", ""))[:10]
-        zone_ids = party.get("zone_ids", [])
+        session_count = party.session_count
+        last_seen = party.last_seen[:10]
+        zone_ids = party.zone_ids
 
         shadow = (card_x + 4, y + 6, card_x + card_w + 4, y + card_h + 6)
         card = (card_x, y, card_x + card_w, y + card_h)
@@ -989,17 +1174,17 @@ def render_sumemo_parties_image(
         meta = f"场次 {session_count}  |  最近 {last_seen}{zone_text}"
         draw.text((card_x + 28, y + 72), meta, font=small_font, fill=(120, 120, 126))
 
-        if members_list:
+        if party.members:
             cols = 2
             col_w = (card_w - 56) // cols
-            for mi, m in enumerate(members_list):
+            for mi, m in enumerate(party.members):
                 col = mi % cols
                 mx = card_x + 28 + col * col_w
                 my = y + 102 + (mi // cols) * 30
-                m_name = m.get("name", "?")
-                m_server = m.get("server", "")
-                hidden = " 🔒" if m.get("hidden") else ""
-                draw.text((mx, my), f"{m_name}@{m_server}{hidden}", font=small_font, fill=(80, 80, 86))
+                member_line = f"{m.name}@{m.server}"
+                if m.hidden:
+                    member_line += " 🔒"
+                draw.text((mx, my), member_line, font=small_font, fill=(80, 80, 86))
 
         y += card_h + gap
 
@@ -1030,13 +1215,17 @@ def render_sumemo_stats_image(
 
     summaries = zone_summaries or []
     # 仅取 SUMEMO_CURRENT_ZONES 中有数据的副本，按 dict 顺序排列
-    current_summaries: list[dict] = []
+    current_summaries: list[SuZoneSummary] = []
     if summaries:
-        summaries_by_id = {s.get("zone_id", 0): s for s in summaries if isinstance(s, dict)}
+        summaries_by_id: dict[int, SuZoneSummary] = {}
+        for s in summaries:
+            if isinstance(s, dict):
+                zs = _parse_zone_summary(s)
+                summaries_by_id[zs.zone_id] = zs
         for zid in SUMEMO_CURRENT_ZONES:
-            s = summaries_by_id.get(zid)
-            if s and s.get("players", 0) > 0:
-                current_summaries.append(s)
+            zs = summaries_by_id.get(zid)
+            if zs and zs.players > 0:
+                current_summaries.append(zs)
 
     zone_card_count = len(current_summaries)
     summary_card_h = 110
@@ -1077,10 +1266,10 @@ def render_sumemo_stats_image(
 
     for si, s in enumerate(current_summaries):
         row_y = stat_y + 122 + si * 56
-        zone_id = s.get("zone_id", 0)
-        players = s.get("players", 0)
-        cleared = s.get("cleared_players", 0)
-        fights_count = s.get("fights", 0)
+        zone_id = s.zone_id
+        players = s.players
+        cleared = s.cleared_players
+        fights_count = s.fights
         zone_label = _sumemo_zone_name(zone_id)
 
         if si % 2 == 0:
@@ -5396,7 +5585,7 @@ class TataruPlugin(Star):
         api_key = self.sumemo_api_key()
 
         try:
-            data, parties_data = await asyncio.gather(
+            overview, parties_resp = await asyncio.gather(
                 sumemo_get_member_overview(name, server, base_url=base_url, api_key=api_key),
                 sumemo_get_member_parties(name, server, base_url=base_url, api_key=api_key),
             )
@@ -5405,17 +5594,17 @@ class TataruPlugin(Star):
             yield event.plain_result("SuMemo 查询失败，请稍后再试")
             return
 
-        if data is None:
+        if overview is None:
             yield event.plain_result(
                 f"未找到玩家 {name}@{server} 的开荒记录。\n"
                 "请确认角色名和服务器名正确。"
             )
             return
 
-        party_list = parties_data.get("parties", []) if isinstance(parties_data, dict) else []
+        party_list = parties_resp.parties if parties_resp else []
 
         image_path = self.cache_dir / "sumemo_overview.jpg"
-        render_sumemo_overview_image(data, image_path, font_path=self.configured_font_path(), parties=party_list)
+        render_sumemo_overview_image(overview, image_path, font_path=self.configured_font_path(), parties=party_list)
         yield event.image_result(str(image_path))
 
     @filter.command("进度本")
