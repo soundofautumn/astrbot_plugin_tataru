@@ -443,6 +443,9 @@ SUMEMO_CURRENT_ZONES: dict[int, str] = {
 
 _SUMEMO_TZ = timezone(timedelta(hours=8))  # UTC+8 用于显示时间
 
+# 队伍成员展示顺序：盾 → 奶 → 近战 → 远敏 → 法系
+SUMEMO_JOB_DISPLAY_ORDER: list[int] = [19, 21, 32, 37, 24, 28, 33, 40, 20, 22, 30, 34, 39, 41, 23, 31, 38, 25, 27, 35, 36, 42, 43]
+
 
 # ── SuMemo 数据结构 ──────────────────────────────────────
 
@@ -821,6 +824,28 @@ def _format_progress_text(best: SuMemberZoneProgress | None) -> str:
     return ""
 
 
+def _format_group_time_span(start_iso: str, end_iso: str) -> str:
+    """格式化组内时间跨度：6 月 17 日 2:03 ~ 2:31。"""
+    if not start_iso:
+        return ""
+    try:
+        st = datetime.fromisoformat(start_iso.replace("Z", "+00:00")).astimezone(_SUMEMO_TZ)
+        date_part = f"{st.month} 月 {st.day} 日  "
+        start_part = f"{st.hour}:{st.minute:02d}"
+        if end_iso:
+            et = datetime.fromisoformat(end_iso.replace("Z", "+00:00")).astimezone(_SUMEMO_TZ)
+            return f"{date_part}{start_part} ~ {et.hour}:{et.minute:02d}"
+        return f"{date_part}{start_part}"
+    except (ValueError, TypeError):
+        return ""
+
+
+def _sort_players_by_display_order(players: list[SuPlayer]) -> list[SuPlayer]:
+    """按 SUMEMO_JOB_DISPLAY_ORDER 顺序排列玩家。"""
+    order_map = {jid: i for i, jid in enumerate(SUMEMO_JOB_DISPLAY_ORDER)}
+    return sorted(players, key=lambda p: order_map.get(p.job_id, 9999))
+
+
 def _party_hash_from_fight(fight: SuFight | None) -> str:
     """从 fight 的 players 推算 party_hash（排序后的 job_id 拼接）。"""
     if not fight or not fight.players:
@@ -913,10 +938,10 @@ def render_sumemo_overview_image(
                 pg["count"] += 1
                 pg["entries"].append(r)
                 if len(f.players) >= len(pg["players"]):
-                    pg["players"] = sorted(f.players, key=lambda p: p.job_id)
+                    pg["players"] = _sort_players_by_display_order(f.players)
             else:
                 party_groups.append({
-                    "players": sorted(f.players, key=lambda p: p.job_id),
+                    "players": _sort_players_by_display_order(f.players),
                     "count": 1, "entries": [r]
                 })
 
@@ -1011,16 +1036,26 @@ def render_sumemo_overview_image(
         col_w = (card_w - 56) // 4
 
         for pg in party_groups:
-            # 本组最新时间
+            # 本组总时间段：最早开打 ~ 最晚结束
             group_entries = pg["entries"]
-            group_fight_times = [e.fight for e in group_entries if e.fight and e.fight.start_time]
-            group_seen = max((f.start_time for f in group_fight_times), default="")
-            group_best_fight = max(group_fight_times, key=lambda f: (f.progress.phase if f.progress else 0), default=None)
+            starts = [e.fight.start_time for e in group_entries if e.fight and e.fight.start_time]
+            ends = []
+            for e in group_entries:
+                f = e.fight
+                if f and f.start_time and f.duration:
+                    try:
+                        st = datetime.fromisoformat(f.start_time.replace("Z", "+00:00"))
+                        et = st + timedelta(seconds=f.duration / 1_000_000_000)
+                        ends.append(et.isoformat())
+                    except (ValueError, TypeError):
+                        pass
+            group_start = min(starts) if starts else ""
+            group_end = max(ends) if ends else ""
 
             # 时间行
-            rel = _format_relative_time(group_seen)
-            group_time_range = _format_fight_time_range(group_best_fight) if group_best_fight else fight_time
-            time_parts = [p for p in [rel, group_time_range] if p]
+            rel = _format_relative_time(group_end or group_start)
+            time_range = _format_group_time_span(group_start, group_end)
+            time_parts = [p for p in [rel, time_range] if p]
             time_line = "  ·  ".join(time_parts) if time_parts else ""
             if time_line:
                 draw.text((card_x + 40, next_row + 2), time_line, font=tiny_font, fill=(140, 140, 146))
