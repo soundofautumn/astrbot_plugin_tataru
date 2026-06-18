@@ -840,11 +840,11 @@ def _format_progress_text(best: SuMemberZoneProgress | None) -> str:
     phase = prog.phase_name
     hp = prog.enemy_hp
     if phase and hp is not None:
-        return f"{phase} {hp * 100:.1f}%"
+        return f"{phase} 余{hp*100:5.1f}%"
     if phase:
         return phase
     if hp is not None:
-        return f"{hp * 100:.1f}%"
+        return f"余{hp*100:5.1f}%"
     return ""
 
 
@@ -1026,7 +1026,7 @@ def render_sumemo_overview_image(
             pill_fill = prog_color
             pill_text = phase_name or "开荒中"
             if enemy_hp is not None:
-                pill_text += f" {enemy_hp * 100:.1f}%"
+                pill_text += f" 余{enemy_hp*100:5.1f}%"
     pill_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
     pill_x = card_x + card_w - pill_w - 36
     draw.rounded_rectangle((pill_x, row_y + 9, pill_x + pill_w, row_y + 37), radius=10, fill=pill_fill)
@@ -1041,7 +1041,7 @@ def render_sumemo_overview_image(
             if phase_name:
                 detail_parts.append(f"当前阶段：{phase_name}")
             if enemy_hp is not None:
-                detail_parts.append(f"剩余血量：{enemy_hp * 100:.1f}%")
+                detail_parts.append(f"余{enemy_hp*100:5.1f}%")
             if detail_parts:
                 draw.text((card_x + 40, next_row + 2), "  |  ".join(detail_parts), font=small_font, fill=(120, 120, 126))
                 next_row += 24
@@ -1165,7 +1165,7 @@ def render_sumemo_zone_best_image(
 
     player_list = fight.players if fight else []
     player_rows = len(player_list)
-    body_h = 164 + max(player_rows, 0) * 34
+    body_h = 130 + max(player_rows, 0) * 34
     card_h = 82 + body_h
     height = 72 + card_h
     image = Image.new("RGB", (width, height), (246, 247, 250))
@@ -1183,29 +1183,32 @@ def render_sumemo_zone_best_image(
     body_y = y + 86
     status = "已通关" if clear else "开荒中"
     status_color = (76, 175, 80) if clear else (255, 152, 0)
-    draw.text((card_x + 28, body_y), "进度：", font=body_font, fill=(88, 88, 94))
-    status_w = text_bbox_size(draw, "进度：", body_font)[0]
-    draw.text((card_x + 28 + status_w + 8, body_y), status, font=body_font, fill=status_color)
 
-    detail_y = body_y + 34
-    has_detail = bool(phase_name and not clear)
-    if has_detail:
-        detail = f"阶段 {phase_name}"
+    # 组装单行信息：进度：已通关  |  6月18日 2:03 ~ 2:31  ·  时长 2分30秒
+    info_parts: list[str] = []
+    if not clear and phase_name:
+        phase_hp = f"阶段 {phase_name}"
         if enemy_hp is not None:
-            detail += f"  |  {enemy_hp * 100:.1f}%"
-        draw.text((card_x + 28, detail_y), detail, font=small_font, fill=(120, 120, 126))
-
+            phase_hp += f"  |  余{enemy_hp*100:5.1f}%"
+        info_parts.append(phase_hp)
     if fight and fight.duration:
         dur = _sumemo_format_nanos(fight.duration)
         time_range = _format_fight_time_range(fight)
         if time_range:
-            line_y = detail_y + 34 if has_detail else detail_y
-            draw.text((card_x + 28, line_y), f"{time_range}  ·  时长 {dur}", font=small_font, fill=(120, 120, 126))
+            info_parts.append(f"{time_range}  ·  时长 {dur}")
         else:
-            draw.text((card_x + card_w - 160, body_y), f"时长 {dur}", font=small_font, fill=(120, 120, 126))
+            info_parts.append(f"时长 {dur}")
+
+    draw.text((card_x + 28, body_y), "进度：", font=body_font, fill=(88, 88, 94))
+    status_w = text_bbox_size(draw, "进度：", body_font)[0]
+    draw.text((card_x + 28 + status_w + 8, body_y), status, font=body_font, fill=status_color)
+
+    if info_parts:
+        info_x = card_x + 28 + status_w + 8 + text_bbox_size(draw, status, body_font)[0] + 18
+        draw.text((info_x, body_y), "  |  ".join(info_parts), font=small_font, fill=(120, 120, 126))
 
     if player_list:
-        roster_y = detail_y + (34 if has_detail else 0) + (34 if fight and fight.duration and _format_fight_time_range(fight) else 0) + 30
+        roster_y = body_y + 64
         draw.text((card_x + 28, roster_y - 28), "阵容", font=small_font, fill=(88, 88, 94))
         draw.line((card_x + 28, roster_y - 10, card_x + card_w - 28, roster_y - 10), fill=(226, 226, 230), width=1)
         cols = 2
