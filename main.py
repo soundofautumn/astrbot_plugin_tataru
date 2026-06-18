@@ -829,6 +829,24 @@ def _party_hash_from_fight(fight: SuFight | None) -> str:
     return "|".join(str(i) for i in ids)
 
 
+def _wrap_progress_texts(draw, texts: list[str], max_width: int, font) -> list[str]:
+    """将进度文字列表横排拼接，超出宽度则换行。"""
+    if not texts:
+        return []
+    lines: list[str] = []
+    current = ""
+    for t in texts:
+        candidate = (current + "    " + t).strip() if current else t
+        if current and text_bbox_size(draw, candidate, font)[0] > max_width:
+            lines.append(current)
+            current = t
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
+
+
 def render_sumemo_overview_image(
     overview: SuMemberOverview,
     output_path: Path,
@@ -883,7 +901,7 @@ def render_sumemo_overview_image(
     fight = best.fight if best else None
 
     # ── 从 latest 提取阵容，按 party_hash 合并相邻同阵容 ──
-    party_groups: list[dict] = []  # {"players": list[SuPlayer], "count": int}
+    party_groups: list[dict] = []  # {"players": [...], "count": int, "entries": [SuMemberZoneProgress]}
     if latest:
         for r in latest:
             f = r.fight
@@ -893,10 +911,11 @@ def render_sumemo_overview_image(
             if party_groups and _party_hash_from_fight(SuFight(players=party_groups[-1]["players"], progress=None)) == h:
                 pg = party_groups[-1]
                 pg["count"] += 1
+                pg["entries"].append(r)
                 if len(f.players) >= len(pg["players"]):
                     pg["players"] = list(f.players)
             else:
-                party_groups.append({"players": list(f.players), "count": 1})
+                party_groups.append({"players": list(f.players), "count": 1, "entries": [r]})
 
     # ── 计算高度 ──
     zh = 48
@@ -910,7 +929,12 @@ def render_sumemo_overview_image(
     if party_groups:
         for pg in party_groups:
             rows = (len(pg["players"]) + 3) // 4  # 一排四个
+            # 进度横排换行：每个进度项约 120px 宽，可用宽度 card_w - 80
+            progress_texts = [_format_progress_text(e) for e in pg["entries"]]
+            progress_texts = [t for t in progress_texts if t]
+            prog_lines = _wrap_progress_texts(draw, progress_texts, card_w - 80, tiny_font)
             roster_h += 26 + 26 + rows * 26  # 时间行 + 统计行 + 成员
+            roster_h += len(prog_lines) * 24  # 进度横排行
             roster_h += 10
         roster_h += 18
 
@@ -978,10 +1002,8 @@ def render_sumemo_overview_image(
         draw.text((card_x + 28, next_row + 2), "队伍阵容", font=small_font, fill=(88, 88, 94))
         next_row += 30
 
-        progress_text = _format_progress_text(best)
         fight_time = _format_fight_time_range(fight)
         col_w = (card_w - 56) // 4
-
         latest_seen = max((r.fight.start_time for r in (latest or []) if r.fight and r.fight.start_time), default="")
 
         for pg in party_groups:
@@ -993,16 +1015,22 @@ def render_sumemo_overview_image(
                 draw.text((card_x + 40, next_row + 2), time_line, font=tiny_font, fill=(140, 140, 146))
                 next_row += 26
 
-            # 统计行
+            # 统计行：总场次 + 本组最远进度
+            group_best = max(pg["entries"], key=lambda e: (
+                (e.progress.phase if e.progress else 0),
+                -(e.progress.enemy_hp or 100) if e.progress else 0,
+            ))
+            group_progress = _format_progress_text(group_best)
             stat_parts = []
             if pg["count"]:
                 stat_parts.append(f"总场次  {pg['count']}")
-            if progress_text:
-                stat_parts.append(f"最远进度  {progress_text}")
+            if group_progress:
+                stat_parts.append(f"最远进度  {group_progress}")
             if stat_parts:
                 draw.text((card_x + 40, next_row + 2), "    ".join(stat_parts), font=small_font, fill=(80, 80, 86))
                 next_row += 26
 
+            # 成员：一排四个
             for pi, p in enumerate(pg["players"]):
                 col = pi % 4
                 row = pi // 4
@@ -1010,12 +1038,20 @@ def render_sumemo_overview_image(
                 py = next_row + row * 26
                 j_name = _sumemo_job_name(p.job_id)
                 member_line = f"{j_name} {p.name}@{p.server}"
-                # 截断过长
                 max_w = col_w - 8
                 while text_bbox_size(draw, member_line, tiny_font)[0] > max_w and len(member_line) > 10:
                     member_line = member_line[:-4] + "…"
                 draw.text((px, py + 4), member_line, font=tiny_font, fill=(100, 100, 106))
             next_row += ((len(pg["players"]) + 3) // 4) * 26
+
+            # 每条战斗进度：横排，过长换行
+            progress_texts = [_format_progress_text(e) for e in pg["entries"]]
+            progress_texts = [t for t in progress_texts if t]
+            prog_lines = _wrap_progress_texts(draw, progress_texts, card_w - 80, tiny_font)
+            for pl in prog_lines:
+                draw.text((card_x + 52, next_row + 4), pl, font=tiny_font, fill=(120, 120, 126))
+                next_row += 24
+
             next_row += 10
 
     image.save(output_path, format="JPEG", quality=90)
