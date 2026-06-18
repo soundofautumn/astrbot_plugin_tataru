@@ -553,21 +553,9 @@ def _sumemo_format_nanos(ns: int) -> str:
     return f"{seconds}秒"
 
 
-def _sumemo_player_main_job(fight: dict) -> int | None:
-    players = fight.get("players", [])
-    if players and isinstance(players, list):
-        for player in players:
-            if isinstance(player, dict):
-                return player.get("job_id")
-    return None
-
-
-def _party_member_key(p: dict) -> frozenset:
-    """返回阵容的成员集合 key，用于判断同一阵容。"""
-    return frozenset(
-        f"{m.get('name','')}@{m.get('server','')}"
-        for m in p.get("members", [])
-    )
+def _party_hash_key(p: dict) -> str:
+    """返回阵容的 party_hash 标识。"""
+    return str(p.get("party_hash", ""))
 
 
 def _format_relative_time(iso_str: str) -> str:
@@ -689,11 +677,11 @@ def render_sumemo_overview_image(
             if zone_id in (p.get("zone_ids") or []):
                 related.append(p)
 
-    # 2. 相邻且同阵容的合并
+    # 2. 相邻且同阵容（party_hash）的合并
     party_groups: list[dict] = []
     for p in related:
-        key = _party_member_key(p)
-        if party_groups and _party_member_key(party_groups[-1]) == key:
+        key = _party_hash_key(p)
+        if party_groups and _party_hash_key(party_groups[-1]) == key:
             # 同阵容相邻 → 合并
             prev = party_groups[-1]
             prev["session_count"] = prev.get("session_count", 0) + p.get("session_count", 0)
