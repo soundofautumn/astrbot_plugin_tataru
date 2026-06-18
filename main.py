@@ -927,12 +927,14 @@ def render_sumemo_overview_image(
 
     roster_h = 0
     if party_groups:
+        # 临时 draw 用于估算文本宽度
+        tmp_img = Image.new("RGB", (1, 1))
+        tmp_draw = ImageDraw.Draw(tmp_img)
         for pg in party_groups:
             rows = (len(pg["players"]) + 3) // 4  # 一排四个
-            # 进度横排换行：每个进度项约 120px 宽，可用宽度 card_w - 80
             progress_texts = [_format_progress_text(e) for e in pg["entries"]]
             progress_texts = [t for t in progress_texts if t]
-            prog_lines = _wrap_progress_texts(draw, progress_texts, card_w - 80, tiny_font)
+            prog_lines = _wrap_progress_texts(tmp_draw, progress_texts, card_w - 80, tiny_font)
             roster_h += 26 + 26 + rows * 26  # 时间行 + 统计行 + 成员
             roster_h += len(prog_lines) * 24  # 进度横排行
             roster_h += 10
