@@ -428,7 +428,7 @@ SUMEMO_JOB_ID_NAME: dict[int, str] = {
     40: "贤者",
     41: "蝰蛇",
     42: "画家",
-    43: "魔兽使",
+    43: "驯兽师",
 }
 
 # 当期高难副本。key 为 zone_id，value 为副本名称。
