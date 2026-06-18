@@ -755,10 +755,6 @@ def _sumemo_format_nanos(ns: int) -> str:
     return f"{seconds}秒"
 
 
-def _party_hash_key(p: SuParty) -> str:
-    """返回阵容的 party_hash 标识。"""
-    return p.party_hash
-
 
 def _format_relative_time(iso_str: str) -> str:
     """将 ISO 时间字符串转为相对时间描述。"""
@@ -820,9 +816,9 @@ def _format_progress_text(best: SuMemberZoneProgress | None) -> str:
 
 def render_sumemo_overview_image(
     overview: SuMemberOverview,
+    parties: list[SuParty],
     output_path: Path,
     font_path: str | None = None,
-    parties: list[SuParty] | None = None,
 ) -> None:
     """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，同一阵容且时间相邻的合并。"""
     name = overview.name
@@ -882,8 +878,8 @@ def render_sumemo_overview_image(
     # 2. 相邻且同阵容（party_hash）的合并
     party_groups: list[SuParty] = []
     for p in related:
-        key = _party_hash_key(p)
-        if party_groups and _party_hash_key(party_groups[-1]) == key:
+        key = p.party_hash
+        if party_groups and (party_groups[-1].party_hash == key):
             prev = party_groups[-1]
             prev.session_count += p.session_count
             if p.last_seen > prev.last_seen:
