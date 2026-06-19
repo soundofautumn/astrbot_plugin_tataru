@@ -893,6 +893,17 @@ TEMPLATES_DIR = PLUGIN_DIR / "templates"
 # 模板字符串缓存：首次读取后驻留内存。
 _SUMEMO_TEMPLATE_CACHE: dict[str, str] = {}
 
+# html_render 选项：PNG 无损 + device scale 输出更清晰的高密度图。
+# - full_page=True 自动按内容高度截图，无需固定 viewport 高度。
+# - scale="device" 让 Playwright 使用 device_scale_factor 倍像素密度，避免移动端二次缩放后糊。
+# - type="png" 关闭 JPEG 压缩噪点。
+SUMEMO_RENDER_OPTIONS: dict = {
+    "type": "png",
+    "full_page": True,
+    "scale": "device",
+    "omit_background": False,
+}
+
 
 def load_sumemo_template(template_name: str) -> str:
     """读取 templates/ 下的 Jinja2 模板源码字符串，供 html_render 使用。"""
@@ -5528,6 +5539,7 @@ class TataruPlugin(Star):
             url = await self.html_render(
                 load_sumemo_template("sumemo_zone_best.html"),
                 build_sumemo_zone_best_context(best),
+                options=SUMEMO_RENDER_OPTIONS,
             )
             yield event.image_result(url)
             return
@@ -5567,6 +5579,7 @@ class TataruPlugin(Star):
         url = await self.html_render(
             load_sumemo_template("sumemo_overview.html"),
             build_sumemo_overview_context(overview, latest=latest_list or None),
+            options=SUMEMO_RENDER_OPTIONS,
         )
         yield event.image_result(url)
 
@@ -5603,6 +5616,7 @@ class TataruPlugin(Star):
         url = await self.html_render(
             load_sumemo_template("sumemo_parties.html"),
             build_sumemo_parties_context(data),
+            options=SUMEMO_RENDER_OPTIONS,
         )
         yield event.image_result(url)
 
@@ -5630,6 +5644,7 @@ class TataruPlugin(Star):
         url = await self.html_render(
             load_sumemo_template("sumemo_stats.html"),
             build_sumemo_stats_context(global_data, zone_summaries),
+            options=SUMEMO_RENDER_OPTIONS,
         )
         yield event.image_result(url)
 
