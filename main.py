@@ -916,24 +916,6 @@ def load_sumemo_template(template_name: str) -> str:
 # ── 工具：上下文构造辅助 ─────────────────────────────────
 
 
-def _wrap_progress_texts_simple(texts: list[str], max_chars: int = 56) -> list[str]:
-    """按字符数粗略换行进度文字，避免单行过长。"""
-    if not texts:
-        return []
-    lines: list[str] = []
-    current = ""
-    for t in texts:
-        candidate = (current + "    " + t).strip() if current else t
-        if current and len(candidate) > max_chars:
-            lines.append(current)
-            current = t
-        else:
-            current = candidate
-    if current:
-        lines.append(current)
-    return lines
-
-
 def _player_to_dict(p: SuPlayer) -> dict:
     return {
         "job": _sumemo_job_name(p.job_id),
@@ -1052,8 +1034,8 @@ def _build_overview_groups_ctx(
         )
         best_text = _format_progress_text(group_best)
 
-        progress_texts = [t for t in (_format_progress_text(e) for e in entries) if t]
-        prog_lines = _wrap_progress_texts_simple(progress_texts)
+        # 每条进度文本独立成项，由 HTML/CSS 负责自动换行。
+        prog_items = [t for t in (_format_progress_text(e) for e in entries) if t]
 
         out.append(
             {
@@ -1062,7 +1044,7 @@ def _build_overview_groups_ctx(
                 "rel": rel,
                 "time_range": time_range,
                 "best_text": best_text,
-                "prog_lines": prog_lines,
+                "prog_items": prog_items,
             }
         )
     return out

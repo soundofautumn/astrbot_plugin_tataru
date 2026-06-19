@@ -12,7 +12,7 @@
                  "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
                  -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                  Arial, sans-serif;
-    background: #f5f7fb; color: #1f2937; font-size: 15px; line-height: 1.5;
+    background: #fff; color: #1f2937; font-size: 18px; line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
   :root {
@@ -20,57 +20,59 @@
     --ink:#1f2937; --ink-muted:#6b7280; --ink-dim:#9ca3af;
     --line:#e5e7eb; --line-soft:#f1f5f9; --card:#fff;
     --warn:#f59e0b; --good:#10b981; --bad:#ef4444;
-    --shadow: 0 8px 24px -10px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.08);
   }
-  .page { width: 960px; margin: 0 auto; padding: 28px 24px 32px; }
-  .card { background: var(--card); border:1px solid var(--line); border-radius:16px;
-          box-shadow: var(--shadow); overflow: hidden; }
-  .hd { padding:18px 24px; color:#fff; display:flex; align-items:center;
+  .page { width: 960px; margin: 0; padding: 0; }
+  .card { background: var(--card); border: none; border-radius: 0;
+          box-shadow: none; overflow: hidden; }
+  .hd { padding: 22px 28px; color:#fff; display:flex; align-items:center;
         justify-content:space-between; gap:16px;
         background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
-  .hd .ttl { font-size:20px; font-weight:600; letter-spacing:.5px;
+  .hd .ttl { font-size: 24px; font-weight:600; letter-spacing:.5px;
              display:flex; align-items:baseline; gap:10px; }
-  .hd .ttl .badge { font-size:12px; padding:2px 8px; border-radius:999px;
+  .hd .ttl .badge { font-size: 14px; padding:3px 10px; border-radius:999px;
                     background:rgba(255,255,255,.22); font-weight:500; }
-  .hd .who { font-size:14px; opacity:.94; font-feature-settings:"tnum"; }
-  .bd { padding:18px 24px 22px; }
-  .sec-title { font-size:13px; color:var(--ink-muted); letter-spacing:.5px;
-               margin:6px 0 10px; display:flex; align-items:center; gap:8px; }
-  .sec-title::before { content:""; width:3px; height:12px; border-radius:2px;
+  .hd .who { font-size: 17px; opacity:.94; font-feature-settings:"tnum"; }
+  .bd { padding: 22px 28px 26px; }
+  .sec-title { font-size: 16px; color:var(--ink-muted); letter-spacing:.5px;
+               margin: 8px 0 12px; display:flex; align-items:center; gap:8px; }
+  .sec-title::before { content:""; width:3px; height: 15px; border-radius:2px;
                        background:var(--brand); display:inline-block; }
-  .divider { height:1px; background:var(--line); margin:14px 0; }
-  .pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px;
-          border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap;
+  .divider { height:1px; background:var(--line); margin: 16px 0; }
+  .pill { display:inline-flex; align-items:center; gap:4px; padding: 4px 12px;
+          border-radius:999px; font-size: 14px; font-weight:600; white-space:nowrap;
           background:#e5e7eb; color:#374151; }
   .pill.clear { background: rgba(16,185,129,.12); color:var(--good); }
   .pill.prog  { background: rgba(245,158,11,.14); color:var(--warn); }
   .pill.none  { background: rgba(156,163,175,.18); color:#6b7280; }
   .group { background: var(--line-soft); border:1px solid var(--line);
-           border-radius:12px; padding:14px 16px; }
-  .group + .group { margin-top:12px; }
-  .group .meta { color: var(--ink-muted); font-size:12.5px; margin-bottom:8px;
-                 display:flex; flex-wrap:wrap; gap:4px 14px; }
+           border-radius:12px; padding: 16px 18px; }
+  .group + .group { margin-top: 14px; }
+  .group .meta { color: var(--ink-muted); font-size: 15px; margin-bottom: 10px;
+                 display:flex; flex-wrap:wrap; gap:4px 16px; }
   .group .meta .sep { color: var(--ink-dim); }
-  .roster { display:grid; grid-template-columns: repeat(4, 1fr); gap:6px 12px; }
-  .roster .m { font-size:13px; display:flex; align-items:center; gap:6px;
+  .roster { display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px 16px; }
+  .roster .m { font-size: 16px; display:flex; align-items:center; gap:6px;
                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .roster .m .job { font-size:11px; padding:1px 6px; border-radius:4px;
+  .roster .m .job { font-size: 13px; padding:2px 8px; border-radius:5px;
                     background:var(--brand-bg); color:var(--brand-ink);
                     font-weight:600; flex-shrink:0; }
   .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
-  .prog-list { margin-top:10px; display:flex; flex-direction:column; gap:4px;
-               font-size:12.5px; color:var(--ink-muted);
-               font-feature-settings:"tnum"; }
+  /* 进度项：flex-wrap 让浏览器按容器宽度自动换行 */
+  .prog-list { margin-top: 12px; display:flex; flex-wrap: wrap; gap: 6px 18px;
+               font-size: 15px; color:var(--ink-muted);
+               font-feature-settings:"tnum"; word-break: break-word; }
+  .prog-list .prog-item { white-space: nowrap; }
   .zone-title-row { display:flex; align-items:center; justify-content:space-between;
-                    gap:12px; padding:12px 14px; background:var(--line-soft);
-                    border-radius:10px; margin-bottom:12px; }
-  .zone-title-row .zn { font-size:16px; font-weight:600; color:var(--ink); }
-  .info-line { color:var(--ink-muted); font-size:13px;
-               font-feature-settings:"tnum"; margin:4px 0 10px; }
+                    gap:12px; padding: 14px 16px; background:var(--line-soft);
+                    border-radius:10px; margin-bottom: 14px; }
+  .zone-title-row .zn { font-size: 20px; font-weight:600; color:var(--ink); }
+  .info-line { color:var(--ink-muted); font-size: 16px;
+               font-feature-settings:"tnum"; margin: 6px 0 12px; }
   .info-line .sep { color: var(--ink-dim); margin: 0 8px; }
-  .empty { padding:32px 24px; text-align:center; color:var(--ink-muted); }
-  .ft { text-align:right; color:var(--ink-dim); font-size:11.5px;
-        margin-top:14px; font-feature-settings:"tnum"; }
+  .empty { padding: 40px 24px; text-align:center; color:var(--ink-muted);
+           font-size: 16px; }
+  .ft { text-align:right; color:var(--ink-dim); font-size: 13px;
+        margin: 14px 28px 18px; font-feature-settings:"tnum"; }
 </style>
 </head>
 <body>
@@ -118,9 +120,9 @@
                 </div>
               {% endfor %}
             </div>
-            {% if g.prog_lines %}
+            {% if g.prog_items %}
               <div class="prog-list">
-                {% for line in g.prog_lines %}<div>{{ line }}</div>{% endfor %}
+                {% for item in g.prog_items %}<span class="prog-item">{{ item }}</span>{% endfor %}
               </div>
             {% endif %}
           </div>

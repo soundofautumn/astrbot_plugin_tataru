@@ -12,46 +12,45 @@
                  "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
                  -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                  Arial, sans-serif;
-    background: #f5f7fb; color: #1f2937; font-size: 15px; line-height: 1.5;
+    background: #fff; color: #1f2937; font-size: 18px; line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
   :root {
     --brand:#0d9488; --brand-soft:#14b8a6;
     --ink:#1f2937; --ink-muted:#6b7280; --ink-dim:#9ca3af;
     --line:#e5e7eb; --line-soft:#f1f5f9; --card:#fff;
-    --shadow: 0 8px 24px -10px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.08);
   }
-  .page { width: 960px; margin: 0 auto; padding: 28px 24px 32px; }
-  .card { background: var(--card); border:1px solid var(--line); border-radius:16px;
-          box-shadow: var(--shadow); overflow: hidden; }
-  .hd { padding:18px 24px; color:#fff; display:flex; align-items:center;
+  .page { width: 960px; margin: 0; padding: 0; }
+  .card { background: var(--card); border: none; border-radius: 0;
+          box-shadow: none; overflow: hidden; }
+  .hd { padding: 22px 28px; color:#fff; display:flex; align-items:center;
         justify-content:space-between; gap:16px;
         background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
-  .hd .ttl { font-size:20px; font-weight:600; letter-spacing:.5px;
+  .hd .ttl { font-size: 24px; font-weight:600; letter-spacing:.5px;
              display:flex; align-items:baseline; gap:10px; }
-  .hd .ttl .badge { font-size:12px; padding:2px 8px; border-radius:999px;
+  .hd .ttl .badge { font-size: 14px; padding:3px 10px; border-radius:999px;
                     background:rgba(255,255,255,.22); font-weight:500; }
-  .hd .who { font-size:14px; opacity:.94; font-feature-settings:"tnum"; }
-  .bd { padding:18px 24px 22px; }
-  .sec-title { font-size:13px; color:var(--ink-muted); letter-spacing:.5px;
-               margin:6px 0 10px; display:flex; align-items:center; gap:8px; }
-  .sec-title::before { content:""; width:3px; height:12px; border-radius:2px;
+  .hd .who { font-size: 17px; opacity:.94; font-feature-settings:"tnum"; }
+  .bd { padding: 22px 28px 26px; }
+  .sec-title { font-size: 16px; color:var(--ink-muted); letter-spacing:.5px;
+               margin: 8px 0 12px; display:flex; align-items:center; gap:8px; }
+  .sec-title::before { content:""; width:3px; height: 15px; border-radius:2px;
                        background:var(--brand); display:inline-block; }
-  .divider { height:1px; background:var(--line); margin:14px 0; }
-  .stat-row { display:flex; gap:12px; }
+  .divider { height:1px; background:var(--line); margin: 16px 0; }
+  .stat-row { display:flex; gap: 14px; }
   .stat-cell { flex:1; background:var(--line-soft); border-radius:12px;
-               padding:16px 18px; }
-  .stat-cell .num { font-size:30px; font-weight:700; color:var(--brand);
+               padding: 18px 22px; }
+  .stat-cell .num { font-size: 36px; font-weight:700; color:var(--brand);
                     font-feature-settings:"tnum"; line-height:1.1; }
-  .stat-cell .lbl { margin-top:4px; font-size:13px; color:var(--ink-muted); }
+  .stat-cell .lbl { margin-top: 6px; font-size: 15px; color:var(--ink-muted); }
   .zone-row { display:flex; justify-content:space-between; align-items:center;
-              padding:12px 14px; border-radius:10px; background:var(--line-soft); }
-  .zone-row + .zone-row { margin-top:8px; }
-  .zone-row .zone-name { color:var(--brand); font-weight:600; font-size:14px; }
-  .zone-row .zone-detail { color:var(--ink-muted); font-size:13px;
+              padding: 14px 16px; border-radius:10px; background:var(--line-soft); }
+  .zone-row + .zone-row { margin-top: 10px; }
+  .zone-row .zone-name { color:var(--brand); font-weight:600; font-size: 17px; }
+  .zone-row .zone-detail { color:var(--ink-muted); font-size: 16px;
                            font-feature-settings:"tnum"; }
-  .ft { text-align:right; color:var(--ink-dim); font-size:11.5px;
-        margin-top:14px; font-feature-settings:"tnum"; }
+  .ft { text-align:right; color:var(--ink-dim); font-size: 13px;
+        margin: 14px 28px 18px; font-feature-settings:"tnum"; }
 </style>
 </head>
 <body>
