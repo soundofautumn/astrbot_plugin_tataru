@@ -908,12 +908,10 @@ TEMPLATES_DIR = PLUGIN_DIR / "templates"
 # 模板字符串缓存：首次读取后驻留内存。
 _SUMEMO_TEMPLATE_CACHE: dict[str, str] = {}
 
-# html_render 选项：AstrBot 远端 t2i 服务默认 type=jpeg / quality=40，画面会糊。
-# 实测 render_custom_template 仅有效字段：type / quality / full_page。
-# 其它键（scale / viewport / omit_background）会被忽略——viewport 宽度只能靠 CSS 兜底。
 SUMEMO_RENDER_OPTIONS: dict = {
     "type": "jpeg",
-    "quality": 95,
+    "quality": 100,
+    "device_scale_factor_level": "ultra",
     "full_page": True,
 }
 

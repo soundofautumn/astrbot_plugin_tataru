@@ -6,16 +6,16 @@
 <title>SuMemo 开荒总览 · {{ name }}@{{ server }}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  /* 把 html/body 强制锁到内容宽度，避免 Playwright 默认 1280 viewport 右侧留白 */
-  html { width: 960px; }
+  /* 让 html/body 自然撑满 Playwright 默认 viewport（约 1280），整体白底；
+     真正的内容固定 960，靠 margin:0 auto 居中。这样无论 viewport 多宽都是对称白边，
+     不会再出现"右侧多一块白"的不对称感。 */
+  html, body { margin: 0; padding: 0; background: #fff; width: 100%; }
   body {
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
                  "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
                  -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                  Arial, sans-serif;
     color: #1f2937; font-size: 20px; line-height: 1.55;
-    width: 960px;
     -webkit-font-smoothing: antialiased;
   }
   :root {
@@ -37,7 +37,7 @@
     --p0-bg:#e5e7eb; --p0-ink:#374151;   /* 未知 P：灰 */
     --pclear-bg:rgba(16,185,129,.16); --pclear-ink:#047857; /* 通关：绿 */
   }
-  .page { width: 960px; margin: 0; padding: 0; }
+  .page { width: 100%; margin: 0; padding: 0; }
   .card { background: var(--card); border: none; border-radius: 0;
           box-shadow: none; overflow: hidden; }
   .hd { padding: 22px 28px; color:#fff; display:flex; align-items:center;
@@ -152,7 +152,7 @@
             </div>
             {% if g.prog_items %}
               <div class="prog-list">
-                {% for item in g.prog_items %}<span class="prog-item {% if item.clear %}clear{% elif item.phase %}p{{ item.phase }}{% endif %}">{{ item.text }}</span>{% endfor %}
+                {% for item in g.prog_items %}<span class="prog-item {% if item['clear'] %}clear{% elif item['phase'] %}p{{ item['phase'] }}{% endif %}">{{ item['text'] }}</span>{% endfor %}
               </div>
             {% endif %}
           </div>
