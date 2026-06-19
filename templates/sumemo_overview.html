@@ -6,13 +6,15 @@
 <title>SuMemo 开荒总览 · {{ name }}@{{ server }}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  /* 把 html/body 强制锁到内容宽度，避免 Playwright 默认 1280 viewport 右侧留白 */
+  html { width: 960px; }
   body {
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
                  "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
                  -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                  Arial, sans-serif;
-    background: #fff; color: #1f2937; font-size: 20px; line-height: 1.55;
+    color: #1f2937; font-size: 20px; line-height: 1.55;
     width: 960px;
     -webkit-font-smoothing: antialiased;
   }

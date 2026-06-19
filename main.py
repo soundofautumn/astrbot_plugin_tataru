@@ -908,15 +908,13 @@ TEMPLATES_DIR = PLUGIN_DIR / "templates"
 # 模板字符串缓存：首次读取后驻留内存。
 _SUMEMO_TEMPLATE_CACHE: dict[str, str] = {}
 
-# html_render 选项：PNG 无损 + device scale 输出更清晰的高密度图。
-# - full_page=True 自动按内容高度截图，无需固定 viewport 高度。
-# - scale="device" 让 Playwright 使用 device_scale_factor 倍像素密度，避免移动端二次缩放后糊。
-# - type="png" 关闭 JPEG 压缩噪点。
+# html_render 选项：AstrBot 远端 t2i 服务默认 type=jpeg / quality=40，画面会糊。
+# 实测 render_custom_template 仅有效字段：type / quality / full_page。
+# 其它键（scale / viewport / omit_background）会被忽略——viewport 宽度只能靠 CSS 兜底。
 SUMEMO_RENDER_OPTIONS: dict = {
-    "type": "png",
+    "type": "jpeg",
+    "quality": 95,
     "full_page": True,
-    "scale": "device",
-    "omit_background": False,
 }
 
 
