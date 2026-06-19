@@ -1051,7 +1051,16 @@ def _build_overview_groups_ctx(
         best_text = _format_progress_text(group_best)
 
         # 每条进度文本独立成项，由 HTML/CSS 负责自动换行。
-        prog_items = [t for t in (_format_progress_text(e) for e in entries) if t]
+        # prog_items: list[{"text": str, "phase": int, "clear": bool}]，
+        # phase 用于模板按阶段染色（0 表示无阶段信息）。
+        prog_items: list[dict] = []
+        for e in entries:
+            text = _format_progress_text(e)
+            if not text:
+                continue
+            is_clear = bool(e.clear)
+            phase = (e.progress.phase if e.progress else 0) or 0
+            prog_items.append({"text": text, "phase": phase, "clear": is_clear})
 
         out.append(
             {

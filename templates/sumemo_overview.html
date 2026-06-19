@@ -24,6 +24,16 @@
     --role-tank-bg:#dbeafe; --role-tank-ink:#1e40af;
     --role-heal-bg:#d1fae5; --role-heal-ink:#065f46;
     --role-dps-bg:#fee2e2;  --role-dps-ink:#991b1b;
+    /* 每个 P 阶段的进度条配色（冷→暖渐变） */
+    --p1-bg:#dbeafe; --p1-ink:#1e40af;   /* 蓝 */
+    --p2-bg:#cffafe; --p2-ink:#155e75;   /* 青 */
+    --p3-bg:#fef9c3; --p3-ink:#854d0e;   /* 黄 */
+    --p4-bg:#ffedd5; --p4-ink:#9a3412;   /* 橙 */
+    --p5-bg:#fee2e2; --p5-ink:#991b1b;   /* 红 */
+    --p6-bg:#ede9fe; --p6-ink:#5b21b6;   /* 紫 */
+    --p7-bg:#fce7f3; --p7-ink:#9d174d;   /* 玫红 */
+    --p0-bg:#e5e7eb; --p0-ink:#374151;   /* 未知 P：灰 */
+    --pclear-bg:rgba(16,185,129,.16); --pclear-ink:#047857; /* 通关：绿 */
   }
   .page { width: 960px; margin: 0; padding: 0; }
   .card { background: var(--card); border: none; border-radius: 0;
@@ -65,11 +75,21 @@
   .roster .m .job.heal { background:var(--role-heal-bg); color:var(--role-heal-ink); }
   .roster .m .job.dps  { background:var(--role-dps-bg);  color:var(--role-dps-ink); }
   .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
-  /* 进度项：flex-wrap 让浏览器按容器宽度自动换行 */
-  .prog-list { margin-top: 12px; display:flex; flex-wrap: wrap; gap: 6px 18px;
-               font-size: 16px; color:var(--ink-muted);
-               font-feature-settings:"tnum"; word-break: break-word; }
-  .prog-list .prog-item { white-space: nowrap; }
+  /* 进度项：flex-wrap 让浏览器按容器宽度自动换行；按 phase 上色 */
+  .prog-list { margin-top: 12px; display:flex; flex-wrap: wrap; gap: 6px 8px;
+               font-size: 16px; font-feature-settings:"tnum";
+               word-break: break-word; }
+  .prog-list .prog-item { white-space: nowrap; padding: 2px 10px;
+                          border-radius: 6px; font-weight: 600;
+                          background: var(--p0-bg); color: var(--p0-ink); }
+  .prog-list .prog-item.p1 { background: var(--p1-bg); color: var(--p1-ink); }
+  .prog-list .prog-item.p2 { background: var(--p2-bg); color: var(--p2-ink); }
+  .prog-list .prog-item.p3 { background: var(--p3-bg); color: var(--p3-ink); }
+  .prog-list .prog-item.p4 { background: var(--p4-bg); color: var(--p4-ink); }
+  .prog-list .prog-item.p5 { background: var(--p5-bg); color: var(--p5-ink); }
+  .prog-list .prog-item.p6 { background: var(--p6-bg); color: var(--p6-ink); }
+  .prog-list .prog-item.p7 { background: var(--p7-bg); color: var(--p7-ink); }
+  .prog-list .prog-item.clear { background: var(--pclear-bg); color: var(--pclear-ink); }
   .zone-title-row { display:flex; align-items:center; justify-content:space-between;
                     gap:12px; padding: 14px 16px; background:var(--line-soft);
                     border-radius:10px; margin-bottom: 14px; }
@@ -130,7 +150,7 @@
             </div>
             {% if g.prog_items %}
               <div class="prog-list">
-                {% for item in g.prog_items %}<span class="prog-item">{{ item }}</span>{% endfor %}
+                {% for item in g.prog_items %}<span class="prog-item {% if item.clear %}clear{% elif item.phase %}p{{ item.phase }}{% endif %}">{{ item.text }}</span>{% endfor %}
               </div>
             {% endif %}
           </div>
