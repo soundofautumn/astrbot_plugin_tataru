@@ -1,0 +1,87 @@
+{# SuMemo 高难固定队（参考 https://github.com/open-xiv/memo-web）#}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>固定队 · {{ name }}@{{ server }}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                 "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
+                 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+                 Arial, sans-serif;
+    background: #f5f7fb; color: #1f2937; font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :root {
+    --brand:#0d9488; --brand-soft:#14b8a6;
+    --ink:#1f2937; --ink-muted:#6b7280; --ink-dim:#9ca3af;
+    --line:#e5e7eb; --line-soft:#f1f5f9; --card:#fff; --bad:#ef4444;
+    --shadow: 0 8px 24px -10px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.08);
+  }
+  .page { width: 960px; margin: 0 auto; padding: 28px 24px 32px; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius:16px;
+          box-shadow: var(--shadow); overflow: hidden; }
+  .hd { padding:18px 24px; color:#fff; display:flex; align-items:center;
+        justify-content:space-between; gap:16px;
+        background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
+  .hd .ttl { font-size:20px; font-weight:600; letter-spacing:.5px;
+             display:flex; align-items:baseline; gap:10px; }
+  .hd .ttl .badge { font-size:12px; padding:2px 8px; border-radius:999px;
+                    background:rgba(255,255,255,.22); font-weight:500; }
+  .hd .who { font-size:14px; opacity:.94; font-feature-settings:"tnum"; }
+  .bd { padding:18px 24px 22px; }
+  .group { background: var(--line-soft); border:1px solid var(--line);
+           border-radius:12px; padding:14px 16px; }
+  .group + .group { margin-top:12px; }
+  .group .meta { color: var(--ink-muted); font-size:12.5px; margin-bottom:8px;
+                 display:flex; flex-wrap:wrap; gap:4px 14px; }
+  .group .meta .sep { color: var(--ink-dim); }
+  .roster { display:grid; grid-template-columns: repeat(2, 1fr); gap:6px 12px; }
+  .roster .m { font-size:13.5px; display:flex; align-items:center; gap:6px;
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
+  .roster .m .dt { color: var(--bad); font-size:11.5px; }
+  .empty { padding:32px 24px; text-align:center; color:var(--ink-muted); }
+  .ft { text-align:right; color:var(--ink-dim); font-size:11.5px;
+        margin-top:14px; font-feature-settings:"tnum"; }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="card">
+  <div class="hd">
+    <div class="ttl">高难固定队<span class="badge">parties</span></div>
+    <div class="who">{{ name }}@{{ server }}</div>
+  </div>
+  <div class="bd">
+    {% if not parties %}
+      <div class="empty">暂无常见高难队伍记录</div>
+    {% else %}
+      {% for party in parties %}
+        <div class="group">
+          <div class="meta">
+            <span style="color: var(--ink); font-weight:600;">队伍 #{{ loop.index }}</span>
+            <span class="sep">·</span><span>场次 {{ party.session_count }}</span>
+            {% if party.last_seen %}<span class="sep">·</span><span>最近 {{ party.last_seen }}</span>{% endif %}
+            {% if party.zone_labels %}<span class="sep">·</span><span>{{ party.zone_labels | join(', ') }}</span>{% endif %}
+          </div>
+          <div class="roster">
+            {% for m in party.members %}
+              <div class="m">
+                <span class="nm">{{ m.name }}@{{ m.server }}</span>
+                {% if m.hidden %}<span class="dt">🔒</span>{% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+</div>
+<div class="ft">SuMemo · 数据来自 sumemo.dev</div>
+</div>
+</body>
+</html>

@@ -776,9 +776,9 @@ def _resolve_zone_id(name_or_id: str) -> int | None:
     if zid is not None:
         return zid
     lower = key.lower()
-    for alias, zid2 in SUMEMO_ZONE_ALIASES.items():
+    for alias, zid in SUMEMO_ZONE_ALIASES.items():
         if lower in alias.lower() or alias.lower() in lower:
-            return zid2
+            return zid
     return None
 
 
@@ -878,15 +878,42 @@ def _party_hash_from_fight(fight: SuFight | None) -> str:
     return "|".join(str(i) for i in ids)
 
 
-def _wrap_progress_texts(draw, texts: list[str], max_width: int, font) -> list[str]:
-    """将进度文字列表横排拼接，超出宽度则换行。"""
+
+# ── SuMemo 网页模板（Jinja2 + AstrBot html_render）─────────
+#
+# 渲染流程：
+#   1. build_sumemo_*_context() 准备纯数据 dict（时间、阵容、文本均已格式化）。
+#   2. load_sumemo_template() 读取插件 templates/ 目录下的 Jinja2 模板源码字符串。
+#   3. handler 中调用 await self.html_render(tmpl_source, ctx, options=...)，
+#      由 AstrBot 内部完成 Jinja2 渲染并截图。
+# 模板风格参考 https://github.com/open-xiv/memo-web 的浅色卡片 UI。
+
+TEMPLATES_DIR = PLUGIN_DIR / "templates"
+
+# 模板字符串缓存：首次读取后驻留内存。
+_SUMEMO_TEMPLATE_CACHE: dict[str, str] = {}
+
+
+def load_sumemo_template(template_name: str) -> str:
+    """读取 templates/ 下的 Jinja2 模板源码字符串，供 html_render 使用。"""
+    if template_name not in _SUMEMO_TEMPLATE_CACHE:
+        path = TEMPLATES_DIR / template_name
+        _SUMEMO_TEMPLATE_CACHE[template_name] = path.read_text(encoding="utf-8")
+    return _SUMEMO_TEMPLATE_CACHE[template_name]
+
+
+# ── 工具：上下文构造辅助 ─────────────────────────────────
+
+
+def _wrap_progress_texts_simple(texts: list[str], max_chars: int = 56) -> list[str]:
+    """按字符数粗略换行进度文字，避免单行过长。"""
     if not texts:
         return []
     lines: list[str] = []
     current = ""
     for t in texts:
         candidate = (current + "    " + t).strip() if current else t
-        if current and text_bbox_size(draw, candidate, font)[0] > max_width:
+        if current and len(candidate) > max_chars:
             lines.append(current)
             current = t
         else:
@@ -896,525 +923,283 @@ def _wrap_progress_texts(draw, texts: list[str], max_width: int, font) -> list[s
     return lines
 
 
-def render_sumemo_overview_image(
-    overview: SuMemberOverview,
-    output_path: Path,
-    font_path: str | None = None,
-    latest: list[SuMemberZoneProgress] | None = None,
-) -> None:
-    """渲染开荒总览为卡片式图片，仅展示第一个有进度的当期副本，同阵容相邻合并，一排四个。"""
-    name = overview.name
-    server = overview.server
+def _player_to_dict(p: SuPlayer) -> dict:
+    return {
+        "job": _sumemo_job_name(p.job_id),
+        "name": p.name or "?",
+        "server": p.server or "",
+        "deaths": p.death_count,
+    }
 
-    # 按 SUMEMO_CURRENT_ZONES 顺序遍历，仅取第一个有进度的副本
-    first_zone: tuple[int, SuMemberOverviewZone] | None = None
-    for zid in SUMEMO_CURRENT_ZONES:
-        zone_data = overview.zones.get(str(zid))
-        if zone_data and zone_data.best is not None:
-            first_zone = (zid, zone_data)
-            break
 
-    width = 920
-    card_x = 24
-    card_w = width - card_x * 2
-    header_color = (38, 166, 154)
-    clear_color = (76, 175, 80)
-    prog_color = (255, 152, 0)
-
-    body_font = load_render_font(font_path, 22)
-    small_font = load_render_font(font_path, 17)
-    title_font = load_render_font(font_path, 28)
-    tiny_font = load_render_font(font_path, 15)
-
-    if first_zone is None:
-        card_h = 130
-        height = 100 + card_h
-        image = Image.new("RGB", (width, height), (246, 247, 250))
-        draw = ImageDraw.Draw(image)
-        y = 32
-        shadow = (card_x + 4, y + 6, card_x + card_w + 4, y + card_h + 6)
-        draw.rounded_rectangle(shadow, radius=14, fill=(224, 226, 232))
-        draw.rounded_rectangle((card_x, y, card_x + card_w, y + card_h), radius=14, fill=(255, 255, 255))
-        draw.rounded_rectangle((card_x, y, card_x + card_w, y + 62), radius=14, fill=header_color)
-        draw.rectangle((card_x, y + 44, card_x + card_w, y + 62), fill=header_color)
-        draw.text((card_x + 28, y + 14), "SuMemo 开荒总览", font=title_font, fill=(255, 255, 255))
-        draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
-        draw.text((card_x + 28, y + 76), "暂无当期副本开荒记录", font=body_font, fill=(120, 120, 126))
-        image.save(output_path, format="JPEG", quality=90)
-        return
-
-    zone_id, zone_data = first_zone
-    duty = zone_data.duty
+def _build_overview_zone_ctx(
+    zone_id: int, zone_data: SuMemberOverviewZone
+) -> dict | None:
+    """构造总览页主副本上下文。无最佳进度时返回 None。"""
     best = zone_data.best
-    zone_label = _sumemo_zone_name(zone_id, duty)
-    fight = best.fight if best else None
-
-    # ── 从 latest 提取阵容，按 party_hash 合并相邻同阵容 ──
-    party_groups: list[dict] = []  # {"players": [...], "count": int, "entries": [SuMemberZoneProgress]}
-    if latest:
-        for r in latest:
-            f = r.fight
-            if not f or not f.players:
-                continue
-            h = _party_hash_from_fight(f)
-            if party_groups and _party_hash_from_fight(SuFight(players=party_groups[-1]["players"], progress=None)) == h:
-                pg = party_groups[-1]
-                pg["count"] += 1
-                pg["entries"].append(r)
-                if len(f.players) >= len(pg["players"]):
-                    pg["players"] = _sort_players_by_display_order(f.players)
-            else:
-                party_groups.append({
-                    "players": _sort_players_by_display_order(f.players),
-                    "count": 1, "entries": [r]
-                })
-
-    # ── 计算高度 ──
-    zh = 48
-    has_info = (best and not best.clear and best.progress and (best.progress.phase_name or best.progress.enemy_hp is not None)) or (fight and fight.duration)
-    if has_info:
-        zh += 24
-
-    roster_h = 0
-    if party_groups:
-        tmp_img = Image.new("RGB", (1, 1))
-        tmp_draw = ImageDraw.Draw(tmp_img)
-        for pg in party_groups:
-            rows = (len(pg["players"]) + 3) // 4
-            progress_texts = [_format_progress_text(e) for e in pg["entries"]]
-            progress_texts = [t for t in progress_texts if t]
-            prog_lines = _wrap_progress_texts(tmp_draw, progress_texts, card_w - 80, tiny_font)
-            roster_h += 28 + rows * 26  # 信息行 + 成员
-            roster_h += len(prog_lines) * 24  # 进度横排行
-            roster_h += 16  # 框内边距
-        roster_h += 18
-
-    total_h = zh + roster_h
-    card_h = 84 + total_h
-    height = 72 + card_h
-    image = Image.new("RGB", (width, height), (246, 247, 250))
-    draw = ImageDraw.Draw(image)
-    y = 32
-
-    shadow = (card_x + 4, y + 6, card_x + card_w + 4, y + card_h + 6)
-    draw.rounded_rectangle(shadow, radius=14, fill=(224, 226, 232))
-    draw.rounded_rectangle((card_x, y, card_x + card_w, y + card_h), radius=14, fill=(255, 255, 255))
-    draw.rounded_rectangle((card_x, y, card_x + card_w, y + 64), radius=14, fill=header_color)
-    draw.rectangle((card_x, y + 46, card_x + card_w, y + 64), fill=header_color)
-    draw.text((card_x + 28, y + 14), "SuMemo 开荒总览", font=title_font, fill=(255, 255, 255))
-    draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
-
-    row_y = y + 82
-
-    # ── 副本标题行 ──
-    draw.rectangle((card_x + 14, row_y, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
-    draw.text((card_x + 28, row_y + 10), zone_label, font=body_font, fill=(45, 45, 52))
-
-    # 状态 pill
     if best is None:
-        pill_fill = (200, 200, 206)
-        pill_text = "无记录"
-    else:
-        if best.clear:
-            pill_fill = clear_color
-            pill_text = "已通关"
-        else:
-            phase_name = best.progress.phase_name if best.progress else ""
-            enemy_hp = best.progress.enemy_hp if best.progress else None
-            pill_fill = prog_color
-            pill_text = phase_name or "开荒中"
-            if enemy_hp is not None:
-                pill_text += f" 余{enemy_hp*100:5.1f}%"
-    pill_w = text_bbox_size(draw, pill_text, small_font)[0] + 24
-    pill_x = card_x + card_w - pill_w - 36
-    draw.rounded_rectangle((pill_x, row_y + 9, pill_x + pill_w, row_y + 37), radius=10, fill=pill_fill)
-    draw.text((pill_x + 12, row_y + 12), pill_text, font=small_font, fill=(255, 255, 255))
-    next_row = row_y + 48
+        return None
+    duty = zone_data.duty
+    fight = best.fight
 
-    # ── 单行信息 ──
-    info_parts: list[str] = []
-    if best and not best.clear:
+    if best.clear:
+        status = "clear"
+        pill_text = "已通关"
+    else:
+        phase_name = best.progress.phase_name if best.progress else ""
+        enemy_hp = best.progress.enemy_hp if best.progress else None
+        status = "prog"
+        pill_text = phase_name or "开荒中"
+        if enemy_hp is not None:
+            pill_text += f" 余{enemy_hp * 100:.1f}%"
+
+    info_line: list[str] = []
+    if not best.clear:
         phase_name = best.progress.phase_name if best.progress else ""
         enemy_hp = best.progress.enemy_hp if best.progress else None
         if phase_name or enemy_hp is not None:
             phase_hp = f"阶段 {phase_name}" if phase_name else ""
             if enemy_hp is not None:
-                phase_hp += f"  |  余{enemy_hp*100:5.1f}%" if phase_hp else f"余{enemy_hp*100:5.1f}%"
-            info_parts.append(phase_hp)
+                hp_text = f"余{enemy_hp * 100:.1f}%"
+                phase_hp = f"{phase_hp}  |  {hp_text}" if phase_hp else hp_text
+            info_line.append(phase_hp)
     if fight and fight.duration:
         dur = _sumemo_format_nanos(fight.duration)
         time_range = _format_fight_time_range(fight)
         if time_range:
-            info_parts.append(f"{time_range}  ·  时长 {dur}")
+            info_line.append(f"{time_range}  ·  时长 {dur}")
         else:
-            info_parts.append(f"时长 {dur}")
-    if info_parts:
-        draw.text((card_x + 40, next_row + 2), "  |  ".join(info_parts), font=small_font, fill=(120, 120, 126))
-        next_row += 24
+            info_line.append(f"时长 {dur}")
 
-    # ── 队伍阵容 ──
-    if party_groups:
-        next_row += 28
-        draw.line((card_x + 28, next_row - 4, card_x + card_w - 28, next_row - 4), fill=(226, 226, 230), width=1)
-        draw.text((card_x + 28, next_row + 2), "队伍阵容", font=small_font, fill=(88, 88, 94))
-        next_row += 30
+    return {
+        "label": _sumemo_zone_name(zone_id, duty),
+        "status": status,
+        "pill_text": pill_text,
+        "info_line": info_line,
+    }
 
-        col_w = (card_w - 56) // 4
 
-        for gi, pg in enumerate(party_groups):
-            group_entries = pg["entries"]
-            # 时间跨度
-            starts = [e.fight.start_time for e in group_entries if e.fight and e.fight.start_time]
-            ends = []
-            for e in group_entries:
-                f = e.fight
-                if f and f.start_time and f.duration:
-                    try:
-                        st = datetime.fromisoformat(f.start_time.replace("Z", "+00:00"))
-                        et = st + timedelta(seconds=f.duration / 1_000_000_000)
-                        ends.append(et.isoformat())
-                    except (ValueError, TypeError):
-                        pass
-            group_start = min(starts) if starts else ""
-            group_end = max(ends) if ends else ""
-            rel = _format_relative_time(group_end or group_start)
-            time_range = _format_group_time_span(group_start, group_end)
+def _build_overview_groups_ctx(
+    latest: list[SuMemberZoneProgress] | None,
+) -> list[dict]:
+    """按相邻同阵容合并 latest 战斗记录，构造队伍组上下文。"""
+    if not latest:
+        return []
 
-            # 最远进度
-            group_best = max(group_entries, key=lambda e: (
+    party_groups: list[dict] = []
+    for r in latest:
+        f = r.fight
+        if not f or not f.players:
+            continue
+        h = _party_hash_from_fight(f)
+        if party_groups:
+            last_h = "|".join(
+                str(i) for i in sorted(p.job_id for p in party_groups[-1]["players"])
+            )
+        else:
+            last_h = None
+        if last_h == h:
+            pg = party_groups[-1]
+            pg["count"] += 1
+            pg["entries"].append(r)
+            if len(f.players) >= len(pg["players"]):
+                pg["players"] = _sort_players_by_display_order(f.players)
+        else:
+            party_groups.append(
+                {
+                    "players": _sort_players_by_display_order(f.players),
+                    "count": 1,
+                    "entries": [r],
+                }
+            )
+
+    out: list[dict] = []
+    for pg in party_groups:
+        entries = pg["entries"]
+        starts = [e.fight.start_time for e in entries if e.fight and e.fight.start_time]
+        ends: list[str] = []
+        for e in entries:
+            f = e.fight
+            if f and f.start_time and f.duration:
+                try:
+                    st = datetime.fromisoformat(f.start_time.replace("Z", "+00:00"))
+                    et = st + timedelta(seconds=f.duration / 1_000_000_000)
+                    ends.append(et.isoformat())
+                except (ValueError, TypeError):
+                    pass
+        group_start = min(starts) if starts else ""
+        group_end = max(ends) if ends else ""
+        rel = _format_relative_time(group_end or group_start)
+        time_range = _format_group_time_span(group_start, group_end)
+
+        group_best = max(
+            entries,
+            key=lambda e: (
                 (e.progress.phase if e.progress else 0),
                 -(e.progress.enemy_hp or 100) if e.progress else 0,
-            ))
-            group_progress = _format_progress_text(group_best)
+            ),
+        )
+        best_text = _format_progress_text(group_best)
 
-            # 计算本组总高度
-            p_rows = (len(pg["players"]) + 3) // 4
-            progress_texts = [_format_progress_text(e) for e in group_entries]
-            progress_texts = [t for t in progress_texts if t]
-            prog_lines = _wrap_progress_texts(draw, progress_texts, card_w - 80, tiny_font)
-            group_h = 28 + p_rows * 26 + len(prog_lines) * 24 + 16
+        progress_texts = [t for t in (_format_progress_text(e) for e in entries) if t]
+        prog_lines = _wrap_progress_texts_simple(progress_texts)
 
-            # 画框
-            box = (card_x + 12, next_row, card_x + card_w - 12, next_row + group_h)
-            draw.rounded_rectangle(box, radius=8, fill=(249, 250, 252), outline=(226, 226, 230), width=1)
-            next_row += 8
-
-            # 信息行：时间 + 场次 + 进度
-            info_parts = []
-            time_part = "  ·  ".join(p for p in [rel, time_range] if p)
-            if time_part:
-                info_parts.append(time_part)
-            stat_parts = []
-            if pg["count"]:
-                stat_parts.append(f"总场次 {pg['count']}")
-            if group_progress:
-                stat_parts.append(f"最远进度 {group_progress}")
-            if stat_parts:
-                info_parts.append("    ".join(stat_parts))
-            info_line = "  ·  ".join(info_parts) if info_parts else ""
-            if info_line:
-                draw.text((card_x + 28, next_row + 4), info_line, font=tiny_font, fill=(100, 100, 106))
-            next_row += 24
-
-            # 成员：一排四个
-            for pi, p in enumerate(pg["players"]):
-                col = pi % 4
-                row = pi // 4
-                px = card_x + 28 + col * col_w
-                py = next_row + row * 26
-                j_name = _sumemo_job_name(p.job_id)
-                member_line = f"{j_name} {p.name}@{p.server}"
-                max_w = col_w - 8
-                while text_bbox_size(draw, member_line, tiny_font)[0] > max_w and len(member_line) > 10:
-                    member_line = member_line[:-4] + "…"
-                draw.text((px, py + 4), member_line, font=tiny_font, fill=(100, 100, 106))
-            next_row += p_rows * 26
-
-            # 每条战斗进度：横排，过长换行
-            for pl in prog_lines:
-                draw.text((card_x + 36, next_row + 4), pl, font=tiny_font, fill=(120, 120, 126))
-                next_row += 24
-
-            next_row += 8
-
-    image.save(output_path, format="JPEG", quality=90)
+        out.append(
+            {
+                "players": [_player_to_dict(p) for p in pg["players"]],
+                "count": pg["count"],
+                "rel": rel,
+                "time_range": time_range,
+                "best_text": best_text,
+                "prog_lines": prog_lines,
+            }
+        )
+    return out
 
 
-def render_sumemo_zone_best_image(
-    best: SuMemberZoneProgress,
-    output_path: Path,
-    font_path: str | None = None,
-) -> None:
-    """渲染副本最佳进度为卡片式图片。"""
-    name = best.name or "?"
-    server = best.server or "?"
-    zone_id = best.zone_id
-    clear = best.clear
+def build_sumemo_overview_context(
+    overview: SuMemberOverview,
+    latest: list[SuMemberZoneProgress] | None = None,
+) -> dict:
+    """构造 SuMemo 开荒总览页面模板上下文。"""
+    first_zone: tuple[int, SuMemberOverviewZone] | None = None
+    for zid in SUMEMO_CURRENT_ZONES:
+        zd = overview.zones.get(str(zid))
+        if zd and zd.best is not None:
+            first_zone = (zid, zd)
+            break
+
+    zone_ctx = None
+    groups_ctx: list[dict] = []
+    if first_zone is not None:
+        zone_id, zone_data = first_zone
+        zone_ctx = _build_overview_zone_ctx(zone_id, zone_data)
+        groups_ctx = _build_overview_groups_ctx(latest)
+
+    return {
+        "name": overview.name or "?",
+        "server": overview.server or "?",
+        "zone": zone_ctx,
+        "groups": groups_ctx,
+    }
+
+
+def build_sumemo_zone_best_context(best: SuMemberZoneProgress) -> dict:
+    """构造 SuMemo 副本最佳进度页面模板上下文。"""
+    zone_label = _sumemo_zone_name(best.zone_id)
     progress = best.progress
     fight = best.fight
-    zone_label = _sumemo_zone_name(zone_id)
 
-    width = 920
-    card_x = 24
-    card_w = width - card_x * 2
-    header_color = (38, 166, 154)
+    if best.clear:
+        status = "clear"
+        pill_text = "已通关"
+    else:
+        status = "prog"
+        phase_name = progress.phase_name if progress else ""
+        enemy_hp = progress.enemy_hp if progress else None
+        pill_text = phase_name or "开荒中"
+        if enemy_hp is not None:
+            pill_text += f" 余{enemy_hp * 100:.1f}%"
 
-    title_font = load_render_font(font_path, 28)
-    body_font = load_render_font(font_path, 22)
-    small_font = load_render_font(font_path, 17)
-    big_font = load_render_font(font_path, 38)
-
+    info_line: list[str] = []
     phase_name = progress.phase_name if progress else ""
     enemy_hp = progress.enemy_hp if progress else None
-
-    player_list = fight.players if fight else []
-    player_rows = len(player_list)
-    body_h = 130 + max(player_rows, 0) * 34
-    card_h = 82 + body_h
-    height = 72 + card_h
-    image = Image.new("RGB", (width, height), (246, 247, 250))
-    draw = ImageDraw.Draw(image)
-    y = 32
-
-    shadow = (card_x + 4, y + 6, card_x + card_w + 4, y + card_h + 6)
-    draw.rounded_rectangle(shadow, radius=14, fill=(224, 226, 232))
-    draw.rounded_rectangle((card_x, y, card_x + card_w, y + card_h), radius=14, fill=(255, 255, 255))
-    draw.rounded_rectangle((card_x, y, card_x + card_w, y + 64), radius=14, fill=header_color)
-    draw.rectangle((card_x, y + 46, card_x + card_w, y + 64), fill=header_color)
-    draw.text((card_x + 28, y + 14), zone_label, font=title_font, fill=(255, 255, 255))
-    draw.text((card_x + card_w - 260, y + 20), f"{name}@{server}", font=small_font, fill=(200, 240, 237))
-
-    body_y = y + 86
-    status = "已通关" if clear else "开荒中"
-    status_color = (76, 175, 80) if clear else (255, 152, 0)
-
-    # 组装单行信息：进度：已通关  |  6月18日 2:03 ~ 2:31  ·  时长 2分30秒
-    info_parts: list[str] = []
-    if not clear and phase_name:
-        phase_hp = f"阶段 {phase_name}"
+    if not best.clear and (phase_name or enemy_hp is not None):
+        phase_hp = f"阶段 {phase_name}" if phase_name else ""
         if enemy_hp is not None:
-            phase_hp += f"  |  余{enemy_hp*100:5.1f}%"
-        info_parts.append(phase_hp)
+            hp_text = f"余{enemy_hp * 100:.1f}%"
+            phase_hp = f"{phase_hp}  |  {hp_text}" if phase_hp else hp_text
+        info_line.append(phase_hp)
     if fight and fight.duration:
         dur = _sumemo_format_nanos(fight.duration)
         time_range = _format_fight_time_range(fight)
         if time_range:
-            info_parts.append(f"{time_range}  ·  时长 {dur}")
+            info_line.append(f"{time_range}  ·  时长 {dur}")
         else:
-            info_parts.append(f"时长 {dur}")
+            info_line.append(f"时长 {dur}")
 
-    draw.text((card_x + 28, body_y), "进度：", font=body_font, fill=(88, 88, 94))
-    status_w = text_bbox_size(draw, "进度：", body_font)[0]
-    draw.text((card_x + 28 + status_w + 8, body_y), status, font=body_font, fill=status_color)
+    players = [_player_to_dict(p) for p in (fight.players if fight else [])]
 
-    if info_parts:
-        info_x = card_x + 28 + status_w + 8 + text_bbox_size(draw, status, body_font)[0] + 18
-        draw.text((info_x, body_y), "  |  ".join(info_parts), font=small_font, fill=(120, 120, 126))
-
-    if player_list:
-        roster_y = body_y + 64
-        draw.text((card_x + 28, roster_y - 28), "阵容", font=small_font, fill=(88, 88, 94))
-        draw.line((card_x + 28, roster_y - 10, card_x + card_w - 28, roster_y - 10), fill=(226, 226, 230), width=1)
-        cols = 2
-        col_w = (card_w - 56) // cols
-        for pi, p in enumerate(player_list):
-            col = pi % cols
-            px = card_x + 28 + col * col_w
-            py = roster_y + (pi // cols) * 32
-            j_name = _sumemo_job_name(p.job_id)
-            p_name = p.name or "?"
-            p_server = p.server or ""
-            deaths = p.death_count
-            death_text = f"  ☠×{deaths}" if deaths else ""
-            line = f"{j_name}  {p_name}@{p_server}{death_text}"
-            draw.text((px, py), line, font=small_font, fill=(80, 80, 86))
-
-    image.save(output_path, format="JPEG", quality=90)
+    return {
+        "name": best.name or "?",
+        "server": best.server or "?",
+        "zone_label": zone_label,
+        "status": status,
+        "pill_text": pill_text,
+        "info_line": info_line,
+        "players": players,
+    }
 
 
-def render_sumemo_parties_image(
-    response: SuPartiesResponse,
-    output_path: Path,
-    font_path: str | None = None,
-) -> None:
-    """渲染高难队伍为卡片式图片。"""
-    name = response.member.name or "?"
-    server = response.member.server or "?"
-    parties = response.parties
-
-    width = 920
-    card_x = 24
-    card_w = width - card_x * 2
-    header_color = (38, 166, 154)
-    gap = 20
-    padding_y = 24
-
-    title_font = load_render_font(font_path, 28)
-    body_font = load_render_font(font_path, 22)
-    small_font = load_render_font(font_path, 17)
-
-    if not parties:
-        card_h = 130
-        height = 100 + card_h
-        image = Image.new("RGB", (width, height), (246, 247, 250))
-        draw = ImageDraw.Draw(image)
-        y = 32
-        shadow = (card_x + 4, y + 6, card_x + card_w + 4, y + card_h + 6)
-        draw.rounded_rectangle(shadow, radius=14, fill=(224, 226, 232))
-        draw.rounded_rectangle((card_x, y, card_x + card_w, y + card_h), radius=14, fill=(255, 255, 255))
-        draw.rounded_rectangle((card_x, y, card_x + card_w, y + 62), radius=14, fill=header_color)
-        draw.rectangle((card_x, y + 44, card_x + card_w, y + 62), fill=header_color)
-        draw.text((card_x + 28, y + 14), f"{name}@{server}", font=title_font, fill=(255, 255, 255))
-        draw.text((card_x + 28, y + 76), "暂无常见高难队伍记录", font=body_font, fill=(120, 120, 126))
-        image.save(output_path, format="JPEG", quality=90)
-        return
-
-    party_cards: list[dict] = []
-    total_h = 0
-    for party in parties:
-        member_count = len(party.members)
-        rows = (member_count + 1) // 2
-        card_h = 100 + max(rows, 1) * 30
-        party_cards.append({"party": party, "card_h": card_h, "member_count": member_count})
-        total_h += card_h + gap
-    total_h -= gap
-
-    height = padding_y * 2 + total_h
-    image = Image.new("RGB", (width, max(height, 200)), (246, 247, 250))
-    draw = ImageDraw.Draw(image)
-    y = padding_y
-
-    for pi, pc in enumerate(party_cards):
-        party: SuParty = pc["party"]
-        card_h = pc["card_h"]
-        session_count = party.session_count
-        last_seen = party.last_seen[:10]
-        zone_ids = party.zone_ids
-
-        shadow = (card_x + 4, y + 6, card_x + card_w + 4, y + card_h + 6)
-        card = (card_x, y, card_x + card_w, y + card_h)
-        draw.rounded_rectangle(shadow, radius=14, fill=(224, 226, 232))
-        draw.rounded_rectangle(card, radius=14, fill=(255, 255, 255))
-        draw.rounded_rectangle((card_x, y, card_x + card_w, y + 62), radius=14, fill=header_color)
-        draw.rectangle((card_x, y + 44, card_x + card_w, y + 62), fill=header_color)
-
-        zone_text = ""
-        if zone_ids:
-            zone_labels = [SUMEMO_CURRENT_ZONES.get(z, f"#{z}") for z in zone_ids[:3]]
-            zone_text = f"  [{', '.join(zone_labels)}]"
-        draw.text((card_x + 28, y + 14), f"队伍 #{pi + 1}", font=title_font, fill=(255, 255, 255))
-
-        meta = f"场次 {session_count}  |  最近 {last_seen}{zone_text}"
-        draw.text((card_x + 28, y + 72), meta, font=small_font, fill=(120, 120, 126))
-
-        if party.members:
-            cols = 2
-            col_w = (card_w - 56) // cols
-            for mi, m in enumerate(party.members):
-                col = mi % cols
-                mx = card_x + 28 + col * col_w
-                my = y + 102 + (mi // cols) * 30
-                member_line = f"{m.name}@{m.server}"
-                if m.hidden:
-                    member_line += " 🔒"
-                draw.text((mx, my), member_line, font=small_font, fill=(80, 80, 86))
-
-        y += card_h + gap
-
-    image.save(output_path, format="JPEG", quality=90)
+def build_sumemo_parties_context(response: SuPartiesResponse) -> dict:
+    """构造高难固定队页面模板上下文。"""
+    parties_ctx: list[dict] = []
+    for party in response.parties:
+        zone_labels = [
+            SUMEMO_CURRENT_ZONES.get(z, f"#{z}") for z in (party.zone_ids or [])[:3]
+        ]
+        parties_ctx.append(
+            {
+                "session_count": party.session_count,
+                "last_seen": (party.last_seen or "")[:10],
+                "zone_labels": zone_labels,
+                "members": [
+                    {
+                        "name": m.name or "?",
+                        "server": m.server or "",
+                        "hidden": m.hidden,
+                    }
+                    for m in party.members
+                ],
+            }
+        )
+    return {
+        "name": response.member.name or "?",
+        "server": response.member.server or "?",
+        "parties": parties_ctx,
+    }
 
 
-def render_sumemo_stats_image(
-    global_data: dict,
-    zone_summaries: list[dict] | None,
-    output_path: Path,
-    font_path: str | None = None,
-) -> None:
-    """渲染全站统计为卡片式图片。"""
-    width = 920
-    card_x = 24
-    card_w = width - card_x * 2
-    header_color = (38, 166, 154)
-
-    title_font = load_render_font(font_path, 28)
-    body_font = load_render_font(font_path, 22)
-    small_font = load_render_font(font_path, 17)
-    big_font = load_render_font(font_path, 40)
-
-    fights = global_data.get("fights", 0)
-    zones_count = global_data.get("zones", 0)
-    members = global_data.get("members", 0)
+def build_sumemo_stats_context(
+    global_data: dict, zone_summaries: list[dict] | None
+) -> dict:
+    """构造 SuMemo 全站统计页面模板上下文。"""
+    fights = int(global_data.get("fights", 0) or 0)
+    zones_count = int(global_data.get("zones", 0) or 0)
+    members = int(global_data.get("members", 0) or 0)
     refreshed = str(global_data.get("refreshed_at", ""))[:19].replace("T", " ")
 
-    summaries = zone_summaries or []
-    # 仅取 SUMEMO_CURRENT_ZONES 中有数据的副本，按 dict 顺序排列
-    current_summaries: list[SuZoneSummary] = []
-    if summaries:
-        summaries_by_id: dict[int, SuZoneSummary] = {}
-        for s in summaries:
+    zone_rows: list[dict] = []
+    if zone_summaries:
+        by_id: dict[int, SuZoneSummary] = {}
+        for s in zone_summaries:
             if isinstance(s, dict):
                 zs = _parse_zone_summary(s)
-                summaries_by_id[zs.zone_id] = zs
+                by_id[zs.zone_id] = zs
         for zid in SUMEMO_CURRENT_ZONES:
-            zs = summaries_by_id.get(zid)
+            zs = by_id.get(zid)
             if zs and zs.players > 0:
-                current_summaries.append(zs)
-                break  # 仅展示第一个有数据的当期副本
+                pct = (
+                    f"{zs.cleared_players / zs.players * 100:.0f}%" if zs.players else "0%"
+                )
+                zone_rows.append(
+                    {
+                        "label": _sumemo_zone_name(zid),
+                        "players": f"{zs.players:,}",
+                        "cleared": f"{zs.cleared_players:,}",
+                        "fights": f"{zs.fights:,}",
+                        "pct": pct,
+                    }
+                )
+                break  # 仅展示第一个有数据的当期副本，与原版本一致
 
-    zone_card_count = len(current_summaries)
-    summary_card_h = 110
-    zone_rows_h = zone_card_count * 58 + 30 if zone_card_count else 0
-    total_card_h = 100 + summary_card_h + zone_rows_h
-    height = 72 + total_card_h
-    image = Image.new("RGB", (width, height), (246, 247, 250))
-    draw = ImageDraw.Draw(image)
-    y = 32
-
-    shadow = (card_x + 4, y + 6, card_x + card_w + 4, y + total_card_h + 6)
-    draw.rounded_rectangle(shadow, radius=14, fill=(224, 226, 232))
-    draw.rounded_rectangle((card_x, y, card_x + card_w, y + total_card_h), radius=14, fill=(255, 255, 255))
-    draw.rounded_rectangle((card_x, y, card_x + card_w, y + 66), radius=14, fill=header_color)
-    draw.rectangle((card_x, y + 48, card_x + card_w, y + 66), fill=header_color)
-    draw.text((card_x + 28, y + 14), "SuMemo 全站统计", font=title_font, fill=(255, 255, 255))
-    draw.text((card_x + card_w - 260, y + 20), f"更新 {refreshed}", font=small_font, fill=(200, 240, 237))
-
-    # 三个统计数字
-    stat_y = y + 90
-    stat_items = [
-        ("总战斗数", f"{fights:,}"),
-        ("覆盖副本", f"{zones_count:,}"),
-        ("参与玩家", f"{members:,}"),
-    ]
-    stat_w = card_w // 3
-    for si, (label, value) in enumerate(stat_items):
-        sx = card_x + 40 + si * stat_w
-        draw.text((sx, stat_y), value, font=big_font, fill=header_color)
-        draw.text((sx, stat_y + 48), label, font=small_font, fill=(120, 120, 126))
-
-    if not current_summaries:
-        image.save(output_path, format="JPEG", quality=90)
-        return
-
-    draw.line((card_x + 28, stat_y + 80, card_x + card_w - 28, stat_y + 80), fill=(226, 226, 230), width=1)
-    draw.text((card_x + 28, stat_y + 90), "各副本统计", font=body_font, fill=(88, 88, 94))
-
-    for si, s in enumerate(current_summaries):
-        row_y = stat_y + 122 + si * 56
-        zone_id = s.zone_id
-        players = s.players
-        cleared = s.cleared_players
-        fights_count = s.fights
-        zone_label = _sumemo_zone_name(zone_id)
-
-        if si % 2 == 0:
-            draw.rectangle((card_x + 14, row_y - 4, card_x + card_w - 14, row_y + 48), fill=(249, 250, 252))
-
-        pct = f"{cleared / players * 100:.0f}%" if players else "0%"
-        draw.text((card_x + 28, row_y + 4), zone_label, font=small_font, fill=header_color)
-        detail = f"玩家 {players:,}  |  通关 {cleared:,} ({pct})  |  场次 {fights_count:,}"
-        draw.text((card_x + 28, row_y + 26), detail, font=small_font, fill=(120, 120, 126))
-
-    image.save(output_path, format="JPEG", quality=90)
+    return {
+        "fights": f"{fights:,}",
+        "zones": f"{zones_count:,}",
+        "members": f"{members:,}",
+        "refreshed": refreshed,
+        "zone_rows": zone_rows,
+    }
 
 
 @dataclass
@@ -5740,9 +5525,11 @@ class TataruPlugin(Star):
                     f"未找到玩家 {name}@{server} 在副本 {zone_id} ({zone_name}) 的记录。"
                 )
                 return
-            image_path = self.cache_dir / "sumemo_zone.jpg"
-            render_sumemo_zone_best_image(best, image_path, font_path=self.configured_font_path())
-            yield event.image_result(str(image_path))
+            url = await self.html_render(
+                load_sumemo_template("sumemo_zone_best.html"),
+                build_sumemo_zone_best_context(best),
+            )
+            yield event.image_result(url)
             return
 
         # 查询总览
@@ -5777,11 +5564,11 @@ class TataruPlugin(Star):
                     latest_list = fetched
                 break
 
-        image_path = self.cache_dir / "sumemo_overview.jpg"
-        render_sumemo_overview_image(overview, image_path,
-                                     font_path=self.configured_font_path(),
-                                     latest=latest_list or None)
-        yield event.image_result(str(image_path))
+        url = await self.html_render(
+            load_sumemo_template("sumemo_overview.html"),
+            build_sumemo_overview_context(overview, latest=latest_list or None),
+        )
+        yield event.image_result(url)
 
     @filter.command("进度队")
     async def sumemo_party(self, event: AstrMessageEvent):
@@ -5813,9 +5600,11 @@ class TataruPlugin(Star):
             )
             return
 
-        image_path = self.cache_dir / "sumemo_party.jpg"
-        render_sumemo_parties_image(data, image_path, font_path=self.configured_font_path())
-        yield event.image_result(str(image_path))
+        url = await self.html_render(
+            load_sumemo_template("sumemo_parties.html"),
+            build_sumemo_parties_context(data),
+        )
+        yield event.image_result(url)
 
     @filter.command("进度统计")
     async def sumemo_stats(self, event: AstrMessageEvent):
@@ -5838,11 +5627,11 @@ class TataruPlugin(Star):
             yield event.plain_result("SuMemo 统计数据暂不可用，请稍后再试")
             return
 
-        image_path = self.cache_dir / "sumemo_stats.jpg"
-        render_sumemo_stats_image(
-            global_data, zone_summaries, image_path, font_path=self.configured_font_path()
+        url = await self.html_render(
+            load_sumemo_template("sumemo_stats.html"),
+            build_sumemo_stats_context(global_data, zone_summaries),
         )
-        yield event.image_result(str(image_path))
+        yield event.image_result(url)
 
     async def create_tarot_result(self, event: AstrMessageEvent):
         if self.tarot_dict is None:

@@ -1,0 +1,135 @@
+{# SuMemo 开荒总览页面（参考 https://github.com/open-xiv/memo-web）#}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>SuMemo 开荒总览 · {{ name }}@{{ server }}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                 "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
+                 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+                 Arial, sans-serif;
+    background: #f5f7fb; color: #1f2937; font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :root {
+    --brand:#0d9488; --brand-soft:#14b8a6; --brand-bg:#ccfbf1; --brand-ink:#134e4a;
+    --ink:#1f2937; --ink-muted:#6b7280; --ink-dim:#9ca3af;
+    --line:#e5e7eb; --line-soft:#f1f5f9; --card:#fff;
+    --warn:#f59e0b; --good:#10b981; --bad:#ef4444;
+    --shadow: 0 8px 24px -10px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.08);
+  }
+  .page { width: 960px; margin: 0 auto; padding: 28px 24px 32px; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius:16px;
+          box-shadow: var(--shadow); overflow: hidden; }
+  .hd { padding:18px 24px; color:#fff; display:flex; align-items:center;
+        justify-content:space-between; gap:16px;
+        background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
+  .hd .ttl { font-size:20px; font-weight:600; letter-spacing:.5px;
+             display:flex; align-items:baseline; gap:10px; }
+  .hd .ttl .badge { font-size:12px; padding:2px 8px; border-radius:999px;
+                    background:rgba(255,255,255,.22); font-weight:500; }
+  .hd .who { font-size:14px; opacity:.94; font-feature-settings:"tnum"; }
+  .bd { padding:18px 24px 22px; }
+  .sec-title { font-size:13px; color:var(--ink-muted); letter-spacing:.5px;
+               margin:6px 0 10px; display:flex; align-items:center; gap:8px; }
+  .sec-title::before { content:""; width:3px; height:12px; border-radius:2px;
+                       background:var(--brand); display:inline-block; }
+  .divider { height:1px; background:var(--line); margin:14px 0; }
+  .pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px;
+          border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap;
+          background:#e5e7eb; color:#374151; }
+  .pill.clear { background: rgba(16,185,129,.12); color:var(--good); }
+  .pill.prog  { background: rgba(245,158,11,.14); color:var(--warn); }
+  .pill.none  { background: rgba(156,163,175,.18); color:#6b7280; }
+  .group { background: var(--line-soft); border:1px solid var(--line);
+           border-radius:12px; padding:14px 16px; }
+  .group + .group { margin-top:12px; }
+  .group .meta { color: var(--ink-muted); font-size:12.5px; margin-bottom:8px;
+                 display:flex; flex-wrap:wrap; gap:4px 14px; }
+  .group .meta .sep { color: var(--ink-dim); }
+  .roster { display:grid; grid-template-columns: repeat(4, 1fr); gap:6px 12px; }
+  .roster .m { font-size:13px; display:flex; align-items:center; gap:6px;
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .roster .m .job { font-size:11px; padding:1px 6px; border-radius:4px;
+                    background:var(--brand-bg); color:var(--brand-ink);
+                    font-weight:600; flex-shrink:0; }
+  .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
+  .prog-list { margin-top:10px; display:flex; flex-direction:column; gap:4px;
+               font-size:12.5px; color:var(--ink-muted);
+               font-feature-settings:"tnum"; }
+  .zone-title-row { display:flex; align-items:center; justify-content:space-between;
+                    gap:12px; padding:12px 14px; background:var(--line-soft);
+                    border-radius:10px; margin-bottom:12px; }
+  .zone-title-row .zn { font-size:16px; font-weight:600; color:var(--ink); }
+  .info-line { color:var(--ink-muted); font-size:13px;
+               font-feature-settings:"tnum"; margin:4px 0 10px; }
+  .info-line .sep { color: var(--ink-dim); margin: 0 8px; }
+  .empty { padding:32px 24px; text-align:center; color:var(--ink-muted); }
+  .ft { text-align:right; color:var(--ink-dim); font-size:11.5px;
+        margin-top:14px; font-feature-settings:"tnum"; }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="card">
+  <div class="hd">
+    <div class="ttl">SuMemo 开荒总览<span class="badge">progress</span></div>
+    <div class="who">{{ name }}@{{ server }}</div>
+  </div>
+  <div class="bd">
+    {% if not zone %}
+      <div class="empty">暂无当期副本开荒记录</div>
+    {% else %}
+      <div class="zone-title-row">
+        <div class="zn">{{ zone.label }}</div>
+        {% if zone.status == 'clear' %}
+          <span class="pill clear">已通关</span>
+        {% elif zone.status == 'prog' %}
+          <span class="pill prog">{{ zone.pill_text }}</span>
+        {% else %}
+          <span class="pill none">无记录</span>
+        {% endif %}
+      </div>
+      {% if zone.info_line %}
+        <div class="info-line">
+          {% for part in zone.info_line %}{{ part }}{% if not loop.last %}<span class="sep">|</span>{% endif %}{% endfor %}
+        </div>
+      {% endif %}
+      {% if groups %}
+        <div class="divider"></div>
+        <div class="sec-title">队伍阵容</div>
+        {% for g in groups %}
+          <div class="group">
+            <div class="meta">
+              {% if g.rel %}<span>{{ g.rel }}</span>{% endif %}
+              {% if g.time_range %}<span class="sep">·</span><span>{{ g.time_range }}</span>{% endif %}
+              {% if g.count %}<span class="sep">·</span><span>总场次 {{ g.count }}</span>{% endif %}
+              {% if g.best_text %}<span class="sep">·</span><span>最远进度 {{ g.best_text }}</span>{% endif %}
+            </div>
+            <div class="roster">
+              {% for p in g.players %}
+                <div class="m">
+                  <span class="job">{{ p.job }}</span>
+                  <span class="nm">{{ p.name }}@{{ p.server }}</span>
+                </div>
+              {% endfor %}
+            </div>
+            {% if g.prog_lines %}
+              <div class="prog-list">
+                {% for line in g.prog_lines %}<div>{{ line }}</div>{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+<div class="ft">SuMemo · 数据来自 sumemo.dev</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,105 @@
+{# SuMemo 副本最佳进度（参考 https://github.com/open-xiv/memo-web）#}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>副本进度 · {{ zone_label }}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+                 "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
+                 -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+                 Arial, sans-serif;
+    background: #f5f7fb; color: #1f2937; font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :root {
+    --brand:#0d9488; --brand-soft:#14b8a6; --brand-bg:#ccfbf1; --brand-ink:#134e4a;
+    --ink:#1f2937; --ink-muted:#6b7280; --ink-dim:#9ca3af;
+    --line:#e5e7eb; --line-soft:#f1f5f9; --card:#fff;
+    --warn:#f59e0b; --good:#10b981; --bad:#ef4444;
+    --shadow: 0 8px 24px -10px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.08);
+  }
+  .page { width: 960px; margin: 0 auto; padding: 28px 24px 32px; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius:16px;
+          box-shadow: var(--shadow); overflow: hidden; }
+  .hd { padding:18px 24px; color:#fff; display:flex; align-items:center;
+        justify-content:space-between; gap:16px;
+        background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
+  .hd .ttl { font-size:20px; font-weight:600; letter-spacing:.5px;
+             display:flex; align-items:baseline; gap:10px; }
+  .hd .ttl .badge { font-size:12px; padding:2px 8px; border-radius:999px;
+                    background:rgba(255,255,255,.22); font-weight:500; }
+  .hd .who { font-size:14px; opacity:.94; font-feature-settings:"tnum"; }
+  .bd { padding:18px 24px 22px; }
+  .sec-title { font-size:13px; color:var(--ink-muted); letter-spacing:.5px;
+               margin:6px 0 10px; display:flex; align-items:center; gap:8px; }
+  .sec-title::before { content:""; width:3px; height:12px; border-radius:2px;
+                       background:var(--brand); display:inline-block; }
+  .divider { height:1px; background:var(--line); margin:14px 0; }
+  .pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px;
+          border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .pill.clear { background: rgba(16,185,129,.12); color:var(--good); }
+  .pill.prog  { background: rgba(245,158,11,.14); color:var(--warn); }
+  .roster { display:grid; grid-template-columns: repeat(2, 1fr); gap:6px 12px; }
+  .roster .m { font-size:13.5px; display:flex; align-items:center; gap:6px;
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .roster .m .job { font-size:11px; padding:1px 6px; border-radius:4px;
+                    background:var(--brand-bg); color:var(--brand-ink);
+                    font-weight:600; flex-shrink:0; }
+  .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
+  .roster .m .dt { color: var(--bad); font-size:11.5px;
+                   font-feature-settings:"tnum"; }
+  .zone-title-row { display:flex; align-items:center; justify-content:space-between;
+                    gap:12px; padding:12px 14px; background:var(--line-soft);
+                    border-radius:10px; margin-bottom:12px; }
+  .zone-title-row .zn { font-size:16px; font-weight:600; color:var(--ink); }
+  .info-line { color:var(--ink-muted); font-size:13px;
+               font-feature-settings:"tnum"; margin:4px 0 10px; }
+  .info-line .sep { color: var(--ink-dim); margin: 0 8px; }
+  .ft { text-align:right; color:var(--ink-dim); font-size:11.5px;
+        margin-top:14px; font-feature-settings:"tnum"; }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="card">
+  <div class="hd">
+    <div class="ttl">{{ zone_label }}<span class="badge">best</span></div>
+    <div class="who">{{ name }}@{{ server }}</div>
+  </div>
+  <div class="bd">
+    <div class="zone-title-row">
+      <div class="zn">进度</div>
+      {% if status == 'clear' %}
+        <span class="pill clear">已通关</span>
+      {% else %}
+        <span class="pill prog">{{ pill_text or '开荒中' }}</span>
+      {% endif %}
+    </div>
+    {% if info_line %}
+      <div class="info-line">
+        {% for part in info_line %}{{ part }}{% if not loop.last %}<span class="sep">|</span>{% endif %}{% endfor %}
+      </div>
+    {% endif %}
+    {% if players %}
+      <div class="divider"></div>
+      <div class="sec-title">阵容</div>
+      <div class="roster">
+        {% for p in players %}
+          <div class="m">
+            <span class="job">{{ p.job }}</span>
+            <span class="nm">{{ p.name }}@{{ p.server }}</span>
+            {% if p.deaths %}<span class="dt">☠×{{ p.deaths }}</span>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+<div class="ft">SuMemo · 数据来自 sumemo.dev</div>
+</div>
+</body>
+</html>
