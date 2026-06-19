@@ -12,7 +12,7 @@
                  "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
                  -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                  Arial, sans-serif;
-    color: #1f2937; font-size: 20px; line-height: 1.55;
+    color: #1f2937; font-size: 20px; line-height: 1.7;
     -webkit-font-smoothing: antialiased;
   }
   :root {
@@ -23,7 +23,7 @@
   .page { width: 100%; margin: 0; padding: 0; }
   .card { background: var(--card); border: none; border-radius: 0;
           box-shadow: none; overflow: hidden; }
-  .hd { padding: 22px 28px; color:#fff; display:flex; align-items:center;
+  .hd { padding: 28px 28px; color:#fff; display:flex; align-items:center;
         justify-content:space-between; gap:16px;
         background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
   .hd .ttl { font-size: 26px; font-weight:600; letter-spacing:.5px;
@@ -31,22 +31,22 @@
   .hd .ttl .badge { font-size: 15px; padding:3px 10px; border-radius:999px;
                     background:rgba(255,255,255,.22); font-weight:500; }
   .hd .who { font-size: 18px; opacity:.94; font-feature-settings:"tnum"; }
-  .bd { padding: 22px 28px 26px; }
+  .bd { padding: 30px 28px 34px; }
   .group { background: var(--line-soft); border:1px solid var(--line);
-           border-radius:12px; padding: 16px 18px; }
-  .group + .group { margin-top: 14px; }
-  .group .meta { color: var(--ink-muted); font-size: 16px; margin-bottom: 10px;
-                 display:flex; flex-wrap:wrap; gap:4px 16px; }
+           border-radius:12px; padding: 22px 22px; }
+  .group + .group { margin-top: 20px; }
+  .group .meta { color: var(--ink-muted); font-size: 16px; margin-bottom: 16px;
+                 display:flex; flex-wrap:wrap; gap:6px 16px; }
   .group .meta .sep { color: var(--ink-dim); }
-  .roster { display:grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; }
+  .roster { display:grid; grid-template-columns: repeat(2, 1fr); gap: 14px 16px; }
   .roster .m { font-size: 17px; display:flex; align-items:center; gap:6px;
                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
   .roster .m .dt { color: var(--bad); font-size: 15px; }
-  .empty { padding: 40px 24px; text-align:center; color:var(--ink-muted);
+  .empty { padding: 56px 24px; text-align:center; color:var(--ink-muted);
            font-size: 17px; }
   .ft { text-align:right; color:var(--ink-dim); font-size: 14px;
-        margin: 14px 28px 18px; font-feature-settings:"tnum"; }
+        margin: 18px 28px 22px; font-feature-settings:"tnum"; }
 </style>
 </head>
 <body>
