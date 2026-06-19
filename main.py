@@ -453,7 +453,22 @@ SUMEMO_ZONE_ALIASES: dict[str, int] = {
 _SUMEMO_TZ = timezone(timedelta(hours=8))  # UTC+8 用于显示时间
 
 # 队伍成员展示顺序：盾 → 奶 → 近战 → 远敏 → 法系
-SUMEMO_JOB_DISPLAY_ORDER: list[int] = [19, 21, 32, 37, 24, 28, 33, 40, 20, 22, 30, 34, 39, 41, 23, 31, 38, 25, 27, 35, 36, 42, 43]
+# 修改本表会同时影响排序与职业颜色分组。
+SUMEMO_JOB_TANK_IDS: list[int] = [19, 21, 32, 37]
+SUMEMO_JOB_HEAL_IDS: list[int] = [24, 28, 33, 40]
+SUMEMO_JOB_DPS_IDS: list[int] = [20, 22, 30, 34, 39, 41, 23, 31, 38, 25, 27, 35, 36, 42, 43]
+SUMEMO_JOB_DISPLAY_ORDER: list[int] = (
+    SUMEMO_JOB_TANK_IDS + SUMEMO_JOB_HEAL_IDS + SUMEMO_JOB_DPS_IDS
+)
+
+
+def _sumemo_job_role(job_id: int) -> str:
+    """返回职业角色分类：tank / heal / dps。未知 job_id 落到 dps。"""
+    if job_id in SUMEMO_JOB_TANK_IDS:
+        return "tank"
+    if job_id in SUMEMO_JOB_HEAL_IDS:
+        return "heal"
+    return "dps"
 
 
 # ── SuMemo 数据结构 ──────────────────────────────────────
@@ -919,6 +934,7 @@ def load_sumemo_template(template_name: str) -> str:
 def _player_to_dict(p: SuPlayer) -> dict:
     return {
         "job": _sumemo_job_name(p.job_id),
+        "role": _sumemo_job_role(p.job_id),
         "name": p.name or "?",
         "server": p.server or "",
         "deaths": p.death_count,

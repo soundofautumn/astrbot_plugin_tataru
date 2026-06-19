@@ -12,7 +12,8 @@
                  "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
                  -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                  Arial, sans-serif;
-    background: #fff; color: #1f2937; font-size: 18px; line-height: 1.55;
+    background: #fff; color: #1f2937; font-size: 20px; line-height: 1.55;
+    width: 960px;
     -webkit-font-smoothing: antialiased;
   }
   :root {
@@ -20,6 +21,9 @@
     --ink:#1f2937; --ink-muted:#6b7280; --ink-dim:#9ca3af;
     --line:#e5e7eb; --line-soft:#f1f5f9; --card:#fff;
     --warn:#f59e0b; --good:#10b981; --bad:#ef4444;
+    --role-tank-bg:#dbeafe; --role-tank-ink:#1e40af;
+    --role-heal-bg:#d1fae5; --role-heal-ink:#065f46;
+    --role-dps-bg:#fee2e2;  --role-dps-ink:#991b1b;
   }
   .page { width: 960px; margin: 0; padding: 0; }
   .card { background: var(--card); border: none; border-radius: 0;
@@ -27,38 +31,41 @@
   .hd { padding: 22px 28px; color:#fff; display:flex; align-items:center;
         justify-content:space-between; gap:16px;
         background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
-  .hd .ttl { font-size: 24px; font-weight:600; letter-spacing:.5px;
+  .hd .ttl { font-size: 26px; font-weight:600; letter-spacing:.5px;
              display:flex; align-items:baseline; gap:10px; }
-  .hd .ttl .badge { font-size: 14px; padding:3px 10px; border-radius:999px;
+  .hd .ttl .badge { font-size: 15px; padding:3px 10px; border-radius:999px;
                     background:rgba(255,255,255,.22); font-weight:500; }
-  .hd .who { font-size: 17px; opacity:.94; font-feature-settings:"tnum"; }
+  .hd .who { font-size: 18px; opacity:.94; font-feature-settings:"tnum"; }
   .bd { padding: 22px 28px 26px; }
-  .sec-title { font-size: 16px; color:var(--ink-muted); letter-spacing:.5px;
+  .sec-title { font-size: 17px; color:var(--ink-muted); letter-spacing:.5px;
                margin: 8px 0 12px; display:flex; align-items:center; gap:8px; }
-  .sec-title::before { content:""; width:3px; height: 15px; border-radius:2px;
+  .sec-title::before { content:""; width:3px; height: 16px; border-radius:2px;
                        background:var(--brand); display:inline-block; }
   .divider { height:1px; background:var(--line); margin: 16px 0; }
   .pill { display:inline-flex; align-items:center; gap:4px; padding: 4px 12px;
-          border-radius:999px; font-size: 14px; font-weight:600; white-space:nowrap; }
+          border-radius:999px; font-size: 15px; font-weight:600; white-space:nowrap; }
   .pill.clear { background: rgba(16,185,129,.12); color:var(--good); }
   .pill.prog  { background: rgba(245,158,11,.14); color:var(--warn); }
   .roster { display:grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px; }
-  .roster .m { font-size: 16px; display:flex; align-items:center; gap:6px;
+  .roster .m { font-size: 17px; display:flex; align-items:center; gap:6px;
                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .roster .m .job { font-size: 13px; padding:2px 8px; border-radius:5px;
-                    background:var(--brand-bg); color:var(--brand-ink);
-                    font-weight:600; flex-shrink:0; }
+  .roster .m .job { font-size: 14px; padding:2px 8px; border-radius:5px;
+                    font-weight:600; flex-shrink:0;
+                    background:var(--role-dps-bg); color:var(--role-dps-ink); }
+  .roster .m .job.tank { background:var(--role-tank-bg); color:var(--role-tank-ink); }
+  .roster .m .job.heal { background:var(--role-heal-bg); color:var(--role-heal-ink); }
+  .roster .m .job.dps  { background:var(--role-dps-bg);  color:var(--role-dps-ink); }
   .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
-  .roster .m .dt { color: var(--bad); font-size: 14px;
+  .roster .m .dt { color: var(--bad); font-size: 15px;
                    font-feature-settings:"tnum"; }
   .zone-title-row { display:flex; align-items:center; justify-content:space-between;
                     gap:12px; padding: 14px 16px; background:var(--line-soft);
                     border-radius:10px; margin-bottom: 14px; }
-  .zone-title-row .zn { font-size: 20px; font-weight:600; color:var(--ink); }
-  .info-line { color:var(--ink-muted); font-size: 16px;
+  .zone-title-row .zn { font-size: 22px; font-weight:600; color:var(--ink); }
+  .info-line { color:var(--ink-muted); font-size: 17px;
                font-feature-settings:"tnum"; margin: 6px 0 12px; }
   .info-line .sep { color: var(--ink-dim); margin: 0 8px; }
-  .ft { text-align:right; color:var(--ink-dim); font-size: 13px;
+  .ft { text-align:right; color:var(--ink-dim); font-size: 14px;
         margin: 14px 28px 18px; font-feature-settings:"tnum"; }
 </style>
 </head>
@@ -89,7 +96,7 @@
       <div class="roster">
         {% for p in players %}
           <div class="m">
-            <span class="job">{{ p.job }}</span>
+            <span class="job {{ p.role }}">{{ p.job }}</span>
             <span class="nm">{{ p.name }}@{{ p.server }}</span>
             {% if p.deaths %}<span class="dt">☠×{{ p.deaths }}</span>{% endif %}
           </div>
