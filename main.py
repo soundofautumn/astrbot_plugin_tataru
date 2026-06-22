@@ -910,7 +910,7 @@ _SUMEMO_TEMPLATE_CACHE: dict[str, str] = {}
 
 SUMEMO_RENDER_OPTIONS: dict = {
     "type": "jpeg",
-    "quality": 100,
+    "quality": 95,
     "device_scale_factor_level": "ultra",
     "full_page": True,
 }

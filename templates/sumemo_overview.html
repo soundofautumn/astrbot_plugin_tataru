@@ -15,7 +15,7 @@
                  "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei",
                  -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
                  Arial, sans-serif;
-    color: #1f2937; font-size: 20px; line-height: 1.7;
+    color: #1f2937; font-size: 24px; line-height: 1.7;
     -webkit-font-smoothing: antialiased;
   }
   :root {
@@ -43,19 +43,19 @@
   .hd { padding: 28px 28px; color:#fff; display:flex; align-items:center;
         justify-content:space-between; gap:16px;
         background: linear-gradient(135deg, var(--brand) 0%, var(--brand-soft) 100%); }
-  .hd .ttl { font-size: 26px; font-weight:600; letter-spacing:.5px;
+  .hd .ttl { font-size: 30px; font-weight:600; letter-spacing:.5px;
              display:flex; align-items:baseline; gap:10px; }
-  .hd .ttl .badge { font-size: 15px; padding:3px 10px; border-radius:999px;
+  .hd .ttl .badge { font-size: 17px; padding:3px 10px; border-radius:999px;
                     background:rgba(255,255,255,.22); font-weight:500; }
-  .hd .who { font-size: 18px; opacity:.94; font-feature-settings:"tnum"; }
+  .hd .who { font-size: 20px; opacity:.94; font-feature-settings:"tnum"; }
   .bd { padding: 30px 28px 34px; }
-  .sec-title { font-size: 17px; color:var(--ink-muted); letter-spacing:.5px;
+  .sec-title { font-size: 19px; color:var(--ink-muted); letter-spacing:.5px;
                margin: 14px 0 18px; display:flex; align-items:center; gap:8px; }
   .sec-title::before { content:""; width:3px; height: 16px; border-radius:2px;
                        background:var(--brand); display:inline-block; }
   .divider { height:1px; background:var(--line); margin: 24px 0; }
-  .pill { display:inline-flex; align-items:center; gap:4px; padding: 4px 12px;
-          border-radius:999px; font-size: 15px; font-weight:600; white-space:nowrap;
+  .pill { display:inline-flex; align-items:center; gap:4px; padding: 5px 14px;
+          border-radius:999px; font-size: 17px; font-weight:600; white-space:nowrap;
           background:#e5e7eb; color:#374151; }
   .pill.clear { background: rgba(16,185,129,.12); color:var(--good); }
   .pill.prog  { background: rgba(245,158,11,.14); color:var(--warn); }
@@ -63,14 +63,14 @@
   .group { background: var(--line-soft); border:1px solid var(--line);
            border-radius:12px; padding: 22px 22px; }
   .group + .group { margin-top: 20px; }
-  .group .meta { color: var(--ink-muted); font-size: 16px; margin-bottom: 16px;
+  .group .meta { color: var(--ink-muted); font-size: 18px; margin-bottom: 16px;
                  display:flex; flex-wrap:wrap; gap:6px 16px; }
   .group .meta .sep { color: var(--ink-dim); }
   .roster { display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px 16px; }
-  .roster .m { font-size: 17px; display:flex; align-items:center; gap:6px;
+  .roster .m { font-size: 22px; display:flex; align-items:center; gap:6px;
                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   /* 职业标签：按 role 区分颜色，tank=蓝 / heal=绿 / dps=红 */
-  .roster .m .job { font-size: 14px; padding:2px 8px; border-radius:5px;
+  .roster .m .job { font-size: 15px; padding:2px 8px; border-radius:5px;
                     font-weight:600; flex-shrink:0;
                     background:var(--role-dps-bg); color:var(--role-dps-ink); }
   .roster .m .job.tank { background:var(--role-tank-bg); color:var(--role-tank-ink); }
@@ -79,7 +79,7 @@
   .roster .m .nm { color:var(--ink); overflow:hidden; text-overflow:ellipsis; }
   /* 进度项：flex-wrap 让浏览器按容器宽度自动换行；按 phase 上色 */
   .prog-list { margin-top: 18px; display:flex; flex-wrap: wrap; gap: 10px 8px;
-               font-size: 16px; font-feature-settings:"tnum";
+               font-size: 18px; font-feature-settings:"tnum";
                word-break: break-word; }
   .prog-list .prog-item { white-space: nowrap; padding: 4px 10px;
                           border-radius: 6px; font-weight: 600;
@@ -95,13 +95,13 @@
   .zone-title-row { display:flex; align-items:center; justify-content:space-between;
                     gap:12px; padding: 18px 20px; background:var(--line-soft);
                     border-radius:10px; margin-bottom: 22px; }
-  .zone-title-row .zn { font-size: 22px; font-weight:600; color:var(--ink); }
-  .info-line { color:var(--ink-muted); font-size: 17px;
+  .zone-title-row .zn { font-size: 24px; font-weight:600; color:var(--ink); }
+  .info-line { color:var(--ink-muted); font-size: 19px;
                font-feature-settings:"tnum"; margin: 10px 0 18px; }
   .info-line .sep { color: var(--ink-dim); margin: 0 8px; }
   .empty { padding: 56px 24px; text-align:center; color:var(--ink-muted);
-           font-size: 17px; }
-  .ft { text-align:right; color:var(--ink-dim); font-size: 14px;
+           font-size: 19px; }
+  .ft { text-align:right; color:var(--ink-dim); font-size: 15px;
         margin: 18px 28px 22px; font-feature-settings:"tnum"; }
 </style>
 </head>
